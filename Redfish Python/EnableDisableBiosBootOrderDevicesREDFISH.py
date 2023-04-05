@@ -1,4 +1,3 @@
-#!/usr/bin/python
 #!/usr/bin/python3
 #
 # EnableDisableBiosBootOrderDevicesREDFISH. Python script using Redfish API to enable or disable BIOS boot order devices.
@@ -191,7 +190,7 @@ def reboot_server():
             if data['PowerState'] == "Off":
                 logging.info("- PASS, GET command passed to verify graceful shutdown was successful and server is in OFF state")
                 break
-            elif current_time == "0:05:00":
+            elif current_time >= "0:05:00":
                 logging.info("- INFO, unable to perform graceful shutdown, server will now perform forced shutdown")
                 payload = {'ResetType': 'ForceOff'}
                 if args["x"]:
@@ -248,8 +247,6 @@ def reboot_server():
         logging.error("- FAIL, unable to get current server power state to perform either reboot or power on")
         sys.exit(0)
 
-   
-
 def loop_job_status_final():
     start_time = datetime.now()
     if args["x"]:
@@ -282,7 +279,6 @@ def loop_job_status_final():
         else:
             logging.info("- INFO, job status not completed, current status: \"%s\"" % data['Message'])
             time.sleep(30)
-
 
 if __name__ == "__main__":
     if args["script_examples"]:
@@ -320,5 +316,3 @@ if __name__ == "__main__":
             loop_job_status_final()
     else:
         logging.error("\n- FAIL, invalid argument values or not all required parameters passed in. See help text or argument --script-examples for more details.")
-
-

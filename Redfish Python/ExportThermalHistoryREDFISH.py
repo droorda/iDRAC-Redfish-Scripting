@@ -1,4 +1,3 @@
-#!/usr/bin/python
 #!/usr/bin/python3
 #
 # ExportThermalHistoryREDFISH. Python script using Redfish API with OEM extension to export server thermal history to a network share
@@ -147,7 +146,6 @@ def loop_job_status():
             logging.info("- INFO, job state not marked completed, current job status is running, polling again")
             time.sleep(2)
     
-
 if __name__ == "__main__":
    if args["script_examples"]:
         script_examples()
@@ -176,10 +174,3 @@ if __name__ == "__main__":
         loop_job_status()
    else:
         logging.error("\n- FAIL, invalid argument values or not all required parameters passed in. See help text or argument --script-examples for more details.")
-    
-    
-    
-        
-            
-        
-        

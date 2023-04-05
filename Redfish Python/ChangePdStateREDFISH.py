@@ -1,4 +1,3 @@
-#!/usr/bin/python
 #!/usr/bin/python3
 #
 # _author_ = Texas Roemer <Texas_Roemer@Dell.com>
@@ -29,7 +28,7 @@ from pprint import pprint
 
 warnings.filterwarnings("ignore")
 
-parser=argparse.ArgumentParser(description="Python script using Redfish API with OEM extension to change the PD state of a disk part of a virtual disk. Either set the disk to offline or bring back online (RAID 0 not supported)")
+parser=argparse.ArgumentParser(description="Python script using Redfish API with OEM extension to change the PD state of a disk part of a virtual disk, either set the disk to offline or bring back online. NOTE: Only RAID volumes which support parity are supported for this feature.")
 parser.add_argument('-ip',help='iDRAC IP address', required=False)
 parser.add_argument('-u', help='iDRAC username', required=False)
 parser.add_argument('-p', help='iDRAC password. If you do not pass in argument -p, script will prompt to enter user password which will not be echoed to the screen.', required=False)
@@ -220,9 +219,6 @@ def loop_job_status():
             logging.info("- INFO, job status not completed, current status: \"%s\"" % data['Message'])
             time.sleep(3)
     
-
-    
-
 if __name__ == "__main__":
     if args["script_examples"]:
         script_examples()
@@ -259,10 +255,3 @@ if __name__ == "__main__":
         loop_job_status()
     else:
         logging.error("\n- FAIL, invalid argument values or not all required parameters passed in. See help text or argument --script-examples for more details.")
-        
-    
-    
-        
-            
-        
-        

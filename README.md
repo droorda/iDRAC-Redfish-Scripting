@@ -8,6 +8,8 @@ Powershell cmdlets can also be installed from Powershell gallery using Install-M
 
 For Python, you can leverage either individual python scripts or install iDRAC Python Redfish module. This module is an interactive session with an iDRAC which allows you to perform multiple workflows like firwmare updates or configuration changes to BIOS, NIC or Storage. You can install this module by running "pip3 install IdracRedfishSupport". 
 
+NOTE: When installing IdracRedfishSupport module using pip3, this will also install all standalone python scripts from the GitHub Python directory. 
+
 When executing any script or cmdlet, if your username or password has special characters or passing in domain name along with username, make sure to surround the argument value with double quotes. 
 
 Examples:
@@ -49,17 +51,20 @@ To support the Redfish standard, the iDRAC with Lifecycle Controller includes su
 
 For complete information concerning iDRAC with Lifecycle Controller, see the documents at http://www.dell.com/idracmanuals .
 
-For an overview of the Redfish implementation for iDRAC with Lifecycle Controller, see these Dell EMC white papers:
+See iDRAC whitepapers below for more information about overview of Redfish support, detailed workflow examples or commonly asked questions:
 
-- [Implementation of the DMTF Redfish API on Dell EMC PowerEdge Servers](http://en.community.dell.com/techcenter/extras/m/white_papers/20442330)
+- [Implementation of the DMTF Redfish API on Dell PowerEdge Servers](http://en.community.dell.com/techcenter/extras/m/white_papers/20442330)
 - [RESTful Server Configuration with iDRAC REST API](http://en.community.dell.com/techcenter/extras/m/white_papers/20443207)
+- [iDRAC RACADM to Redfish Mapping](https://dl.dell.com/content/manual9969682-idrac9-racadm-to-redfish-mapping.pdf?language=en-us)
+- [iDRAC User Interface to Redfish Mapping](https://dl.dell.com/content/manual24821844-idrac9-user-interface-to-redfish-mapping.pdf?language=en-us)
+- [iDRAC Redfish FAQ](https://dl.dell.com/content/manual16004247-idrac-redfish-faq.pdf?language=en-us)
 
 For details on the DMTF Redfish standard, visit https://www.dmtf.org/standards/redfish 
 
 
 ## iDRAC REST API with Redfish Scripting Library
 
-This GitHub library contains example Python and PowerShell scripts that illustrate the usage of the iDRAC REST API with Redfish to perform the following actions:
+This GitHub library contains example Python and PowerShell scripts that illustrate the usage of the iDRAC REST API with Redfish to perform many different workflows which include:
 
 BIOS operations
 *	Get / Set BIOS attributes
@@ -83,6 +88,12 @@ Server operations
 *	Get / Set server power state
 *	Get server storage inventory
 
+Storage operations
+*	Create virtual disk
+*	Reset controller
+*	Set / Rekey / Remove controller encryption
+* Assign / Unassign DHS / GHS 
+
 Prerequisites
 *	PowerEdge 12G/13G/14G/15G servers
 *	Minimum iDRAC 7/8 FW 2.40.40.40, iDRAC9 FW 3.00.00.00
@@ -91,7 +102,7 @@ Prerequisites
 
 ## Support
 
-Please note this code is provided as-is and currently not supported by Dell EMC.
+Please note this code is provided as-is and currently not supported by Dell.
 
 ## Report problems or provide feedback
 

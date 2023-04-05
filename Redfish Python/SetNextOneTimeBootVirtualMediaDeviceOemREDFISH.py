@@ -1,9 +1,9 @@
+#!/usr/bin/python3
 #
 # SetNextOneTimeBootVirtualMediaDeviceOemREDFISH. Python script using Redfish API with OEM extension to set next onetime boot device to either virtual optical or virtual floppy.
 #
-#
 # _author_ = Texas Roemer <Texas_Roemer@Dell.com>
-# _version_ = 2.0
+# _version_ = 3.0
 #
 # Copyright (c) 2019, Dell, Inc.
 #
@@ -17,180 +17,246 @@
 
 import requests, json, sys, re, time, warnings, argparse
 
+import argparse
+import getpass
+import json
+import logging
+import re
+import requests
+import sys
+import time
+import warnings
+
 from datetime import datetime
+from pprint import pprint
 
 warnings.filterwarnings("ignore")
 
-parser=argparse.ArgumentParser(description="Python script using Redfish API with OEM extension to set next onetime boot device to either virtual optical or virtual floppy.")
-parser.add_argument('-ip',help='iDRAC IP address', required=True)
-parser.add_argument('-u', help='iDRAC username', required=True)
-parser.add_argument('-p', help='iDRAC password', required=True)
-parser.add_argument('script_examples',action="store_true",help='SetNextOneTimeBootVirtualMediaDeviceOemREDFISH.py -ip 192.168.0.120 -u root -p calvin -d 1 -r y, this example will set next next ontime boot device to virtual cd and reboot now')
-parser.add_argument('-d', help='Pass in \"1\" to set next onetime boot device to virtual cd. Pass in \"2\" to set next onetime boot device to virtual floppy', required=True)
-parser.add_argument('-r', help='Pass in \"y\" if you want the server to reboot now once you set next boot onetime boot device or \"n\" to not reboot now', required=True)
-args=vars(parser.parse_args())
+parser = argparse.ArgumentParser(description="Python script using Redfish API with OEM extension to set next onetime boot device to either virtual optical or virtual floppy. NOTE: If using iDRAC9 version 4.40 or newer, leverage script SetNextOneTimeBootDeviceREDFISH.py passing in a value of a Cd to onetime boot to virtual CD.")
+parser.add_argument('-ip',help='iDRAC IP address', required=False)
+parser.add_argument('-u', help='iDRAC username', required=False)
+parser.add_argument('-p', help='iDRAC password. If you do not pass in argument -p, script will prompt to enter user password which will not be echoed to the screen.', required=False)
+parser.add_argument('-x', help='Pass in X-Auth session token for executing Redfish calls. All Redfish calls will use X-Auth token instead of username/password', required=False)
+parser.add_argument('--ssl', help='SSL cert verification for all Redfish calls, pass in value \"true\" or \"false\". By default, this argument is not required and script ignores validating SSL cert for all Redfish calls.', required=False)
+parser.add_argument('--script-examples', help='Get executing script examples', action="store_true", dest="script_examples", required=False)
+parser.add_argument('--device', help='Pass in \"1\" to set next onetime boot device to virtual cd. Pass in \"2\" to set next onetime boot device to virtual floppy', required=False)
+parser.add_argument('--reboot', help='Pass in this argument to reboot the server now to onetime boot to virtual device.', action="store_true", required=False)
+args = vars(parser.parse_args())
+logging.basicConfig(format='%(message)s', stream=sys.stdout, level=logging.INFO)
 
-idrac_ip=args["ip"]
-idrac_username=args["u"]
-idrac_password=args["p"]
-
+def script_examples():
+    print("""\n - SetNextOneTimeBootVirtualMediaDeviceOemREDFISH.py -ip 192.168.0.120 -u root -p calvin --device 1 --reboot, this example will set next next ontime boot device to virtual cd and reboot now.
+    \n- SetNextOneTimeBootVirtualMediaDeviceOemREDFISH.py -ip 192.168.0.120 -u root -p calvin --device 1, this example will set next next ontime boot device to virtual cd and not reboot the server. Onetime boot flag is still set and will boot to this device on next server reboot.""")
+    sys.exit(0)
+    
+def check_supported_idrac_version():
+    if args["x"]:
+        response = requests.get('https://%s/redfish/v1/Managers/iDRAC.Embedded.1' % idrac_ip, verify=verify_cert, headers={'X-Auth-Token': args["x"]})   
+    else:
+        response = requests.get('https://%s/redfish/v1/Managers/iDRAC.Embedded.1' % idrac_ip, verify=verify_cert,auth=(idrac_username, idrac_password))
+    data = response.json()
+    if response.status_code == 401:
+        logging.warning("\n- WARNING, status code %s returned. Incorrect iDRAC username/password or invalid privilege detected." % response.status_code)
+        sys.exit(0)
+    if response.status_code != 200:
+        logging.warning("\n- WARNING, iDRAC version installed does not support this feature using Redfish API")
+        sys.exit(0)
 
 def set_next_onetime_boot_device_virtual_media():    
     url = 'https://%s/redfish/v1/Managers/iDRAC.Embedded.1/Actions/Oem/EID_674_Manager.ImportSystemConfiguration' % idrac_ip
-    if args["d"] == "1":
+    if args["device"] == "1":
         payload = {"ShareParameters":{"Target":"ALL"},"ImportBuffer":"<SystemConfiguration><Component FQDD=\"iDRAC.Embedded.1\"><Attribute Name=\"ServerBoot.1#BootOnce\">Enabled</Attribute><Attribute Name=\"ServerBoot.1#FirstBootDevice\">VCD-DVD</Attribute></Component></SystemConfiguration>"}
-        print("\n- WARNING, setting next onetime boot device to Virtual CD")
-    elif args["d"] == "2":
+        logging.info("\n- INFO, setting next onetime boot device to Virtual CD")
+    elif args["device"] == "2":
         payload = {"ShareParameters":{"Target":"ALL"},"ImportBuffer":"<SystemConfiguration><Component FQDD=\"iDRAC.Embedded.1\"><Attribute Name=\"ServerBoot.1#BootOnce\">Enabled</Attribute><Attribute Name=\"ServerBoot.1#FirstBootDevice\">vFDD</Attribute></Component></SystemConfiguration>"}
-        print("\n- WARNING, setting next onetime boot device to Virtual Floppy")
+        logging.info("\n- INFO, setting next onetime boot device to Virtual Floppy")
     else:
-        print("\n- FAIL, invalid value passed in for argument -d")
-        sys.exit()
-    
-    headers = {'content-type': 'application/json'}
-    response = requests.post(url, data=json.dumps(payload), headers=headers, verify=False, auth=(idrac_username,idrac_password))
-    response_dict=str(response.__dict__)
+        logging.error("\n- FAIL, invalid value passed in for argument --device")
+        sys.exit(0)
+    if args["x"]:
+        headers = {'content-type': 'application/json', 'X-Auth-Token': args["x"]}
+        response = requests.post(url, data=json.dumps(payload), headers=headers, verify=verify_cert)
+    else:
+        headers = {'content-type': 'application/json'}
+        response = requests.post(url, data=json.dumps(payload), headers=headers, verify=verify_cert,auth=(idrac_username,idrac_password))
     try:
-        job_id_search=re.search("JID_.+?,",response_dict).group()
+        task_uri = response.__dict__["headers"]["Location"]
     except:
-        print("\n- FAIL: status code %s returned" % response.status_code)
-        print("- Detailed error information: %s" % response_dict)
-        sys.exit()
-
-    job_id=re.sub("[,']","",job_id_search)
-    if response.status_code != 202:
-        print("\n- FAIL, status code not 202\n, code is: %s" % response.status_code)  
-        sys.exit()
-    else:
-        pass
-    start_time=datetime.now()
+        logging.error("\n- FAIL: status code %s returned" % response.status_code)
+        logging.error("- Detailed error information: %s" % response.__dict__)
+        sys.exit(0)
+    start_time = datetime.now()
     while True:
-        req = requests.get('https://%s/redfish/v1/TaskService/Tasks/%s' % (idrac_ip, job_id), auth=(idrac_username, idrac_password), verify=False)
-        statusCode = req.status_code
-        data = req.json()
-        current_time=(datetime.now()-start_time)
-        if statusCode == 202 or statusCode == 200:
-            pass
+        if args["x"]:
+            response = requests.get('https://%s%s' % (idrac_ip, task_uri), verify=verify_cert, headers={'X-Auth-Token': args["x"]})   
+        else:
+            response = requests.get('https://%s%s' % (idrac_ip, task_uri), verify=verify_cert,auth=(idrac_username, idrac_password))
+        data = response.json()
+        current_time = (datetime.now()-start_time)
+        if str(current_time)[0:7] >= "0:01:00":
+            logging.error("\n- FAIL: Timeout of 1 minute has been hit, script stopped\n")
+            sys.exit(0)
+        elif response.status_code == 202 or response.status_code == 200:
+            logging.debug("- PASS, GET command passed to get job status details")
             time.sleep(3)
         else:
-            print("Query job ID command failed, error code is: %s" % statusCode)
-            sys.exit()
-        if "failed" in data[u'Oem'][u'Dell'][u'Message'] or "completed with errors" in data[u'Oem'][u'Dell'][u'Message'] or "Not one" in data[u'Oem'][u'Dell'][u'Message'] or "not compliant" in data[u'Oem'][u'Dell'][u'Message'] or "Unable" in data[u'Oem'][u'Dell'][u'Message'] or "The system could not be shut down" in data[u'Oem'][u'Dell'][u'Message'] or "timed out" in data[u'Oem'][u'Dell'][u'Message']:
-            print("- FAIL, Job ID %s marked as %s but detected issue(s). See detailed job results below for more information on failure\n" % (job_id, data[u'Oem'][u'Dell'][u'JobState']))
-            print("- Detailed job results for job ID %s\n" % job_id)
+            logging.error("- FAIL, GET command failed to check job status, error code %s returned" % response.status_code)
+            sys.exit(0)
+        if "fail" in data['Oem']['Dell']['Message'] or "error" in data['Oem']['Dell']['Message'] or "unable" in data['Oem']['Dell']['Message'] or "not" in data['Oem']['Dell']['Message']:
+            print("- FAIL, Job ID marked as %s but detected issue(s). See detailed job results below for more information on failure\n" % (data['Oem']['Dell']['JobState']))
+            print("- Detailed job results - %s\n")
             for i in data['Oem']['Dell'].items():
-                print("%s: %s" % (i[0], i[1]))
-            print("\n- Config results for job ID %s\n" % job_id)
-            for i in data['Messages']:
-                    for ii in i.items():
-                        if ii[0] == "Oem":
-                            print("-" * 80)
-                            for iii in ii[1]['Dell'].items():
-                                print("%s: %s" % (iii[0], iii[1]))
-                        else:
-                            pass
-        elif "No changes" in data[u'Oem'][u'Dell'][u'Message']:
-            if args["d"] == "1":
-                print("- WARNING, next onetime boot device already set to Virtual CD, no changes applied")
-            elif args["d"] == "2":
-                print("- WARNING, next onetime boot device already set to Virtual Floppy, no changes applied")
+                pprint(i)
+            print("\n- Config results for job ID -\n")
+            try:
+                for i in data["Messages"]:
+                    pprint(i)
+            except:
+                logging.error("- FAIL, unable to get configuration results for job ID, returning only final job results\n")
+                for i in data['Oem']['Dell'].items():
+                    pprint(i)
             break
-        elif "Successfully imported" in data[u'Oem'][u'Dell'][u'Message'] or "completed with errors" in data[u'Oem'][u'Dell'][u'Message'] or "Successfully imported" in data[u'Oem'][u'Dell'][u'Message']:
-            if args["d"] == "1":
-                print("- PASS, successfully set next onetime boot device to Virtual CD")
-            elif args["d"] == "2":
-                print("- PASS, successfully set next onetime boot device to Virtual Floppy")
+        elif "No changes" in data['Oem']['Dell']['Message']:
+            if args["device"] == "1":
+                logging.info("- INFO, next onetime boot device already set to Virtual CD, no changes applied")
+            elif args["device"] == "2":
+                logging.info("- INFO, next onetime boot device already set to Virtual Floppy, no changes applied")
+            break
+        elif "Successfully imported" in data['Oem']['Dell']['Message']:
+            if args["device"] == "1":
+                logging.info("- PASS, successfully set next onetime boot device to Virtual CD")
+            elif args["device"] == "2":
+                logging.info("- PASS, successfully set next onetime boot device to Virtual Floppy")
             break
         else:
             time.sleep(1)
             continue
 
-
 def reboot_server():
-    response = requests.get('https://%s/redfish/v1/Systems/System.Embedded.1/' % idrac_ip,verify=False,auth=(idrac_username, idrac_password))
+    if args["x"]:
+        response = requests.get('https://%s/redfish/v1/Systems/System.Embedded.1' % idrac_ip, verify=verify_cert, headers={'X-Auth-Token': args["x"]})   
+    else:
+        response = requests.get('https://%s/redfish/v1/Systems/System.Embedded.1' % idrac_ip, verify=verify_cert,auth=(idrac_username, idrac_password))
     data = response.json()
-    print("\n- WARNING, Current server power state is: %s" % data[u'PowerState'])
-    if data[u'PowerState'] == "On":
+    logging.info("- INFO, Current server power state: %s" % data['PowerState'])
+    if data['PowerState'] == "On":
         url = 'https://%s/redfish/v1/Systems/System.Embedded.1/Actions/ComputerSystem.Reset' % idrac_ip
-        payload = {'ResetType': 'GracefulShutdown'}
-        headers = {'content-type': 'application/json'}
-        response = requests.post(url, data=json.dumps(payload), headers=headers, verify=False, auth=(idrac_username,idrac_password))
-        statusCode = response.status_code
-        if statusCode == 204:
-            print("- PASS, Command passed to gracefully power OFF server, %s status code returned" % statusCode)
-            time.sleep(10)
+        payload = {'ResetType':'GracefulShutdown'}
+        if args["x"]:
+            headers = {'content-type':'application/json', 'X-Auth-Token': args["x"]}
+            response = requests.post(url, data=json.dumps(payload), headers=headers, verify=verify_cert)
         else:
-            print("\n- FAIL, Command failed to gracefully power OFF server, status code is: %s\n" % statusCode)
-            print("Extended Info Message: {0}".format(response.json()))
-            sys.exit()
-        count = 0
+            headers = {'content-type':'application/json'}
+            response = requests.post(url, data=json.dumps(payload), headers=headers, verify=verify_cert,auth=(idrac_username,idrac_password))
+        if response.status_code == 204:
+            logging.info("- PASS, POST command passed to gracefully power OFF server")
+            logging.info("- INFO, script will now verify the server was able to perform a graceful shutdown. If the server was unable to perform a graceful shutdown, forced shutdown will be invoked in 5 minutes")
+            time.sleep(15)
+            start_time = datetime.now()
+        else:
+            logging.error("\n- FAIL, Command failed to gracefully power OFF server, status code is: %s\n" % response.status_code)
+            logging.error("Extended Info Message: {0}".format(response.json()))
+            sys.exit(0)
         while True:
-            response = requests.get('https://%s/redfish/v1/Systems/System.Embedded.1/' % idrac_ip,verify=False,auth=(idrac_username, idrac_password))
-            data = response.json()
-            if data[u'PowerState'] == "Off":
-                print("- PASS, GET command passed to verify server is in OFF state")
-                break
-            elif count == 20:
-                print("- WARNING, unable to graceful shutdown the server, will perform forced shutdown now")
-                url = 'https://%s/redfish/v1/Systems/System.Embedded.1/Actions/ComputerSystem.Reset' % idrac_ip
-                payload = {'ResetType': 'ForceOff'}
-                headers = {'content-type': 'application/json'}
-                response = requests.post(url, data=json.dumps(payload), headers=headers, verify=False, auth=(idrac_username,idrac_password))
-                statusCode = response.status_code
-                if statusCode == 204:
-                    print("- PASS, Command passed to forcefully power OFF server, %s status code returned" % statusCode)
-                    time.sleep(15)
-                else:
-                    print("\n- FAIL, Command failed to gracefully power OFF server, status code is: %s\n" % statusCode)
-                    print("Extended Info Message: {0}".format(response.json()))
-                    sys.exit()
-                
+            if args["x"]:
+                response = requests.get('https://%s/redfish/v1/Systems/System.Embedded.1' % idrac_ip, verify=verify_cert, headers={'X-Auth-Token': args["x"]})   
             else:
-                time.sleep(2)
-                count+=1
-                continue
-            
+                response = requests.get('https://%s/redfish/v1/Systems/System.Embedded.1' % idrac_ip, verify=verify_cert,auth=(idrac_username, idrac_password))
+            data = response.json()
+            current_time = str(datetime.now() - start_time)[0:7]
+            if data['PowerState'] == "Off":
+                logging.info("- PASS, GET command passed to verify graceful shutdown was successful and server is in OFF state")
+                break
+            elif current_time >= "0:05:00":
+                logging.info("- INFO, unable to perform graceful shutdown, server will now perform forced shutdown")
+                payload = {'ResetType':'ForceOff'}
+                if args["x"]:
+                    headers = {'content-type': 'application/json', 'X-Auth-Token': args["x"]}
+                    response = requests.post(url, data=json.dumps(payload), headers=headers, verify=verify_cert)
+                else:
+                    headers = {'content-type': 'application/json'}
+                    response = requests.post(url, data=json.dumps(payload), headers=headers, verify=verify_cert,auth=(idrac_username,idrac_password))
+                if response.status_code == 204:
+                    logging.info("- PASS, POST command passed to perform forced shutdown")
+                    time.sleep(15)
+                    if args["x"]:
+                        response = requests.get('https://%s/redfish/v1/Systems/System.Embedded.1' % idrac_ip, verify=verify_cert, headers={'X-Auth-Token': args["x"]})   
+                    else:
+                        response = requests.get('https://%s/redfish/v1/Systems/System.Embedded.1' % idrac_ip, verify=verify_cert,auth=(idrac_username, idrac_password))
+                    data = response.json()
+                    if data['PowerState'] == "Off":
+                        logging.info("- PASS, GET command passed to verify forced shutdown was successful and server is in OFF state")
+                        break
+                    else:
+                        logging.error("- FAIL, server not in OFF state, current power status is %s" % data['PowerState'])
+                        sys.exit(0)    
+            else:
+                continue 
         payload = {'ResetType': 'On'}
-        headers = {'content-type': 'application/json'}
-        response = requests.post(url, data=json.dumps(payload), headers=headers, verify=False, auth=(idrac_username,idrac_password))
-        statusCode = response.status_code
-        if statusCode == 204:
-            print("- PASS, Command passed to power ON server, %s status code returned" % statusCode)
+        if args["x"]:
+            headers = {'content-type': 'application/json', 'X-Auth-Token': args["x"]}
+            response = requests.post(url, data=json.dumps(payload), headers=headers, verify=verify_cert)
         else:
-            print("\n- FAIL, Command failed to power ON server, status code is: %s\n" % statusCode)
-            print("Extended Info Message: {0}".format(response.json()))
-            sys.exit()
-    elif data[u'PowerState'] == "Off":
+            headers = {'content-type': 'application/json'}
+            response = requests.post(url, data=json.dumps(payload), headers=headers, verify=verify_cert,auth=(idrac_username,idrac_password))
+        if response.status_code == 204:
+            logging.info("- PASS, POST command passed to power ON server")
+        else:
+            logging.error("\n- FAIL, Command failed to power ON server, status code is: %s\n" % response.status_code)
+            logging.error("Extended Info Message: {0}".format(response.json()))
+            sys.exit(0)
+    elif data['PowerState'] == "Off":
         url = 'https://%s/redfish/v1/Systems/System.Embedded.1/Actions/ComputerSystem.Reset' % idrac_ip
         payload = {'ResetType': 'On'}
-        headers = {'content-type': 'application/json'}
-        response = requests.post(url, data=json.dumps(payload), headers=headers, verify=False, auth=(idrac_username,idrac_password))
-        statusCode = response.status_code
-        if statusCode == 204:
-            print("- PASS, Command passed to power ON server, %s status code returned" % statusCode)
+        if args["x"]:
+            headers = {'content-type': 'application/json', 'X-Auth-Token': args["x"]}
+            response = requests.post(url, data=json.dumps(payload), headers=headers, verify=verify_cert)
         else:
-            print("\n- FAIL, Command failed to power ON server, status code is: %s\n" % statusCode)
-            print("Extended Info Message: {0}".format(response.json()))
-            sys.exit()
+            headers = {'content-type': 'application/json'}
+            response = requests.post(url, data=json.dumps(payload), headers=headers, verify=verify_cert,auth=(idrac_username,idrac_password))
+        if response.status_code == 204:
+            logging.info("- PASS, Command passed to power ON server, code return is %s" % response.status_code)
+        else:
+            logging.error("\n- FAIL, Command failed to power ON server, status code is: %s\n" % response.status_code)
+            logging.error("Extended Info Message: {0}".format(response.json()))
+            sys.exit(0)
     else:
-        print("- FAIL, unable to get current server power state to perform either reboot or power on")
-        sys.exit()
-
-        
+        logging.error("- FAIL, unable to get current server power state to perform either reboot or power on")
+        sys.exit(0)
+   
 if __name__ == "__main__":
-    if args["d"] and args["r"]:
-        set_next_onetime_boot_device_virtual_media()
-        if args["r"] == "n":
-            print("- WARNING, no reboot selected for -r argument. Onetime boot will be applied on next manual server reboot")
-            sys.exit()
-        elif args["r"] == "y":
-            reboot_server()
-            if args["d"] == "1":
-                print("- WARNING, System will now reboot and onetime boot to Virtual CD after POST")
-            elif args["d"] == "2":
-                print("- WARNING, System will now reboot and onetime boot to Virtual Floppy after POST")
+    if args["script_examples"]:
+        script_examples()
+    if args["ip"] or args["ssl"] or args["u"] or args["p"] or args["x"]:
+        idrac_ip = args["ip"]
+        idrac_username = args["u"]
+        if args["p"]:
+            idrac_password = args["p"]
+        if not args["p"] and not args["x"] and args["u"]:
+            idrac_password = getpass.getpass("\n- Argument -p not detected, pass in iDRAC user %s password: " % args["u"])
+        if args["ssl"]:
+            if args["ssl"].lower() == "true":
+                verify_cert = True
+            elif args["ssl"].lower() == "false":
+                verify_cert = False
+            else:
+                verify_cert = False
         else:
-            print("- FAIL, invalid value passed in for -r argument. Check script help for supported values")
-            sys.exit()
+            verify_cert = False
+        check_supported_idrac_version()
     else:
-        print("\n- FAIL, either missing or invalid parameter(s) passed in. If needed, see script help text for supported parameters and script examples")
+        logging.error("\n- FAIL, invalid argument values or not all required parameters passed in. See help text or argument --script-examples for more details.")
+        sys.exit(0)
+    if args["device"]:
+        set_next_onetime_boot_device_virtual_media()
+        if args["reboot"]:
+            if args["device"] == "1":
+                logging.info("- INFO, system will now reboot and onetime boot to Virtual CD after POST")
+            elif args["device"] == "2":
+                logging.info("- INFO, system will now reboot and onetime boot to Virtual Floppy after POST")
+            reboot_server()
+        else:
+            logging.info("- INFO, argument --reboot not detected. Onetime boot will be applied on next manual server reboot")
+            sys.exit(0)
+    else:
+        logging.error("\n- FAIL, invalid argument values or not all required parameters passed in. See help text or argument --script-examples for more details.")

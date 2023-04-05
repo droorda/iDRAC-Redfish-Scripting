@@ -1,8 +1,9 @@
+#!/usr/bin/python3
 #
 # BootToNetworkIsoOsdREDFISH. Python script using Redfish API with OEM extension to either get network ISO attach status, boot to network ISO or detach network ISO
 #
 # _author_ = Texas Roemer <Texas_Roemer@Dell.com>
-# _version_ = 2.0
+# _version_ = 3.0
 #
 # Copyright (c) 2019, Dell, Inc.
 #
@@ -30,7 +31,7 @@ from pprint import pprint
 
 warnings.filterwarnings("ignore")
 
-parser=argparse.ArgumentParser(description="Python script using Redfish API with OEM extension to either get network ISO attach status, boot to network ISO or detach network ISO")
+parser = argparse.ArgumentParser(description="Python script using Redfish API with OEM extension to either get network ISO attach status, boot to network ISO or detach network ISO")
 parser.add_argument('-ip',help='iDRAC IP address', required=False)
 parser.add_argument('-u', help='iDRAC username', required=False)
 parser.add_argument('-p', help='iDRAC password. If you do not pass in argument -p, script will prompt to enter user password which will not be echoed to the screen.', required=False)
@@ -39,7 +40,7 @@ parser.add_argument('--ssl', help='SSL cert verification for all Redfish calls, 
 parser.add_argument('--script-examples', help='Get executing script examples', action="store_true", dest="script_examples", required=False)
 parser.add_argument('--get-attach-status', help='Get attach status for network ISO', action="store_true", dest="get_attach_status", required=False)
 parser.add_argument('--boot-iso', help='Boot to network ISO. Make sure to also pass in network share arguments, see examples for more details', action="store_true", dest="boot_iso", required=False)
-parser.add_argument('--ipaddress', help='Pass in the IP address of the network share', required=False)
+parser.add_argument('--shareip', help='Pass in the IP address of the network share', required=False)
 parser.add_argument('--sharetype', help='Pass in the share type of the network share. Supported values are NFS and CIFS', required=False)
 parser.add_argument('--sharename', help='Pass in the network share share name', required=False)
 parser.add_argument('--username', help='Pass in the CIFS username', required=False)
@@ -48,12 +49,12 @@ parser.add_argument('--workgroup', help='Pass in the workgroup of your CIFS netw
 parser.add_argument('--imagename', help='Pass in the operating system(OS) string you want to boot from on your network share', required=False)
 parser.add_argument('--detach-iso', help='Detach network ISO', action="store_true", dest="detach_iso", required=False)
 
-args=vars(parser.parse_args())
+args = vars(parser.parse_args())
 logging.basicConfig(format='%(message)s', stream=sys.stdout, level=logging.INFO)
 
 def script_examples():
     print("""\n- BootToNetworkIsoOsdREDFISH.py -ip 192.168.0.120 -u root -p calvin --get-attach-status, this example to get current network ISO attach status.
-    \n- BootToNetworkIsoOsdREDFISH.py -ip 192.168.0.120 -u root -p calvin --boot-iso --ipaddress 192.168.0.130 --sharetype NFS --sharename /nfs --imagename ESXi.iso, this example will boot to network ISO on NFS share
+    \n- BootToNetworkIsoOsdREDFISH.py -ip 192.168.0.120 -u root -p calvin --boot-iso --shareip 192.168.0.130 --sharetype NFS --sharename /nfs --imagename ESXi.iso, this example will boot to network ISO on NFS share
     \n- BootToNetworkIsoOsdREDFISH.py -ip 192.168.0.120 -u root -p calvin --detach-iso, this example will detach attached ISO.""")
     sys.exit(0)
     
@@ -88,8 +89,6 @@ def get_attach_status():
         logging.error("\n- POST command failure results:\n %s" % data)
         sys.exit()
     logging.info("- INFO, current ISO attach status: %s" % data['ISOAttachStatus'])
-
-
     
 def boot_to_network_iso():
     global concrete_job_uri
@@ -99,8 +98,8 @@ def boot_to_network_iso():
     logging.info("\n- INFO, starting %s operation which may take 5-10 seconds to create the task" % method)
     url = 'https://%s/redfish/v1/Dell/Systems/System.Embedded.1/DellOSDeploymentService/Actions/DellOSDeploymentService.BootToNetworkISO' % (idrac_ip)
     payload={}
-    if args["ipaddress"]:
-        payload["IPAddress"] = args["ipaddress"]
+    if args["shareip"]:
+        payload["IPAddress"] = args["shareip"]
     if args["sharetype"]:
         payload["ShareType"] = args["sharetype"]
     if args["sharename"]:
@@ -156,12 +155,12 @@ def check_concrete_job_status():
             response = requests.get('https://%s%s' % (idrac_ip, concrete_job_uri), verify=verify_cert,auth=(idrac_username, idrac_password))
         current_time = str((datetime.now()-start_time))[0:7]
         if response.status_code == 200 or response.status_code == 202:
-            logging.info("- PASS, GET command passed to get task details")
+            logging.debug("- PASS, GET command passed to get task details")
         else:
             logging.error("\n- FAIL, command failed to check job status, return code %s" % response.status_code)
             logging.error("Extended Info Message: {0}".format(response.json()))
             sys.exit(0)
-        data= response.json()
+        data = response.json()
         if str(current_time)[0:7] >= "0:30:00":
             logging.error("\n- FAIL: Timeout of 30 minutes has been hit, script stopped\n")
             sys.exit(0)
@@ -182,14 +181,10 @@ def check_concrete_job_status():
         elif data["TaskState"] == "Exception":
             logging.error("\n- FAIL, final detailed task results -\n")
             for i in data.items():
-                if i[0] == "Messages":
-                    for ii in i[1][0].items():
-                        print("%s: %s" % (ii[0], ii[1]))   
-                else:
-                    print("%s: %s" % (i[0], i[1]))
-            sys.exit()
+                pprint(i)
+            sys.exit(0)
         else:
-            print("- INFO, task not completed, current status: \"%s\", job execution time: \"%s\"" % (data['TaskState'], current_time))
+            logging.info("- INFO, task not completed, current status: \"%s\", job execution time: \"%s\"" % (data['TaskState'], current_time))
             time.sleep(10)    
     
 def check_attach_status(x):
@@ -212,15 +207,11 @@ def check_attach_status(x):
     else:
         logging.error("- FAIL, ISO attach status not successfully identified as %s" % x)
         sys.exit(0)
-
-
-
-    
-
+        
 if __name__ == "__main__":
     if args["script_examples"]:
         script_examples()
-    if args["ip"] and args["ssl"] or args["u"] or args["p"] or args["x"]:
+    if args["ip"] or args["ssl"] or args["u"] or args["p"] or args["x"]:
         idrac_ip = args["ip"]
         idrac_username = args["u"]
         if args["p"]:
@@ -242,7 +233,7 @@ if __name__ == "__main__":
         sys.exit(0)
     if args["get_attach_status"]:
         get_attach_status()
-    elif args["boot_iso"] and args["ipaddress"] and args["sharetype"] and args["sharename"]:
+    elif args["boot_iso"] and args["shareip"] and args["sharetype"] and args["sharename"]:
         boot_to_network_iso()
         check_concrete_job_status()
         check_attach_status("Attached")
@@ -251,14 +242,4 @@ if __name__ == "__main__":
         check_attach_status("NotAttached")
     else:
         logging.error("\n- FAIL, invalid argument values or not all required parameters passed in. See help text or argument --script-examples for more details.")
-        sys.exit(0)
-        
-    
-        
-        
-    
-    
-        
-            
-        
-        
+        sys.exit(0)   

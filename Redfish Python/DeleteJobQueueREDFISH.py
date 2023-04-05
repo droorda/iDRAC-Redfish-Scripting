@@ -1,10 +1,9 @@
-#!/usr/bin/python
 #!/usr/bin/python3
 #
 # DeleteJobQueueREDFISH.py  Python script using Redfish API with OEM extension to get either delete single job ID, delete complete job queue or delete job queue and restart Lifecycle Controller services.
 #
 # _author_ = Texas Roemer <Texas_Roemer@Dell.com>
-# _version_ = 6.0
+# _version_ = 7.0
 #
 # Copyright (c) 2020, Dell, Inc.
 #
@@ -40,7 +39,7 @@ parser.add_argument('--ssl', help='SSL cert verification for all Redfish calls, 
 parser.add_argument('--script-examples', help='Get executing script examples', action="store_true", dest="script_examples", required=False)
 parser.add_argument('--single-job', help='Delete single job id, pass in the job ID', dest="single_job", required=False)
 parser.add_argument('--clear', help='Clear the job queue to delete all job IDs.', action="store_true", required=False)
-parser.add_argument('--clear-restart', help='Clear the job queue and restart iDRAC Lifecycle Controller services, pass in a value of \"y\". By selecting this option, it will take a few minutes for the Lifecycle Controller to be back in Ready state. Note: Use this option as a last resort for debugging iDRAC failures or to delete a job stuck in running state. If iDRAC still does not recover after running this operation, reboot iDRAC.', dest="clear_restart", action="store_true", required=False)
+parser.add_argument('--clear-restart', help='Clear the job queue and restart iDRAC Lifecycle Controller services. By selecting this option, it will take a few minutes for the Lifecycle Controller to be back in Ready state. Note: Use this option as a last resort for debugging iDRAC failures or to delete a job stuck in running state. If iDRAC still does not recover after running this operation, reboot iDRAC.', dest="clear_restart", action="store_true", required=False)
 parser.add_argument('--get', help='Get current job ids in the job queue', action="store_true", required=False)
 
 args=vars(parser.parse_args())
@@ -135,8 +134,6 @@ def delete_jobID():
                 print("- INFO, Lifecycle Controller services not in ready state, polling again")
                 time.sleep(20)
     
-                    
-
 if __name__ == "__main__":
     if args["script_examples"]:
         script_examples()
@@ -166,6 +163,3 @@ if __name__ == "__main__":
         get_job_queue_job_ids()
     else:
         logging.error("\n- FAIL, invalid argument values or not all required parameters passed in. See help text or argument --script-examples for more details.")
-        
-
-

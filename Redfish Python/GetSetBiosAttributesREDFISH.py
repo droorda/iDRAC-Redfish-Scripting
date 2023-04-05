@@ -1,10 +1,9 @@
-#!/usr/bin/python
 #!/usr/bin/python3
 #
 # GetSetBiosAttributesREDFISH. Python script using Redfish API DMTF to either get or set BIOS attributes using Redfish SettingApplyTime.
 #
 # _author_ = Texas Roemer <Texas_Roemer@Dell.com>
-# _version_ = 16.0
+# _version_ = 18.0
 #
 # Copyright (c) 2019, Dell, Inc.
 #
@@ -15,7 +14,6 @@
 # along with this software; if not, see
 # http://www.gnu.org/licenses/old-licenses/gpl-2.0.txt.
 #
-
 
 import argparse
 import getpass
@@ -32,14 +30,14 @@ from pprint import pprint
 
 warnings.filterwarnings("ignore")
 
-parser=argparse.ArgumentParser(description="Python script using Redfish API DMTF to either get or set BIOS attributes using Redfish SettingApplyTime. If needed, run a GET on URI \"redfish/v1/Systems/System.Embedded.1/Bios/BiosRegistry\" to see supported possible values for setting attributes.")
+parser = argparse.ArgumentParser(description="Python script using Redfish API DMTF to either get or set BIOS attributes using Redfish SettingApplyTime. If needed, run a GET on URI \"redfish/v1/Systems/System.Embedded.1/Bios/BiosRegistry\" to see supported possible values for setting attributes.")
 parser.add_argument('-ip',help='iDRAC IP address', required=False)
 parser.add_argument('-u', help='iDRAC username', required=False)
 parser.add_argument('-p', help='iDRAC password. If you do not pass in argument -p, script will prompt to enter user password which will not be echoed to the screen.', required=False)
 parser.add_argument('-x', help='Pass in X-Auth session token for executing Redfish calls. All Redfish calls will use X-Auth token instead of username/password', required=False)
 parser.add_argument('--ssl', help='SSL cert verification for all Redfish calls, pass in value \"true\" or \"false\". By default, this argument is not required and script ignores validating SSL cert for all Redfish calls.', required=False)
 parser.add_argument('--script-examples', help='Get executing script examples', action="store_true", dest="script_examples", required=False)
-parser.add_argument('--get', help='Get all BIOS attributes, pass in a value of \"y\"', action="store_true", required=False)
+parser.add_argument('--get', help='Get all BIOS attributes', action="store_true", required=False)
 parser.add_argument('--get-attribute', help='If you want to get only a specific BIOS attribute, pass in the attribute name you want to get the current value, Note: make sure to type the attribute name exactly due to case senstive. Example: MemTest will work but memtest will fail', dest="get_attribute", required=False)
 parser.add_argument('--get-registry', help='Get complete BIOS attribute registry', dest="get_registry", action="store_true", required=False)
 parser.add_argument('--get-registry-attribute', help='Get registry information for a specific attribute, pass in the attribute name', dest="get_registry_attribute", required=False)
@@ -50,7 +48,7 @@ parser.add_argument('--maintenance-reboot', help='Pass in the type of maintenanc
 parser.add_argument('--start-time', help='Maintenance window start date/time, pass it in this format \"YYYY-MM-DDTHH:MM:SS(+/-)HH:MM\"', dest="start_time", required=False)
 parser.add_argument('--duration-time', help='Maintenance window duration time(amount of time allowed to execute and complete the config job), pass in a value in seconds', dest="duration_time", required=False)
 
-args=vars(parser.parse_args())
+args = vars(parser.parse_args())
 logging.basicConfig(format='%(message)s', stream=sys.stdout, level=logging.INFO)
 
 def script_examples():
@@ -60,7 +58,6 @@ def script_examples():
     \n- GetSetBiosAttributesREDFISH.py -ip 192.168.0.120 -u root -p calvin --attribute-names MemTest --attribute-values Disabled --maintenance-reboot autoreboot --start-time "2018-10-30T20:10:10-05:00" --duration-time 600, this example shows setting BIOS attribute using scheduled start time with maintenance window. Once the scheduled time has elapsed, server will auto reboot to execute config job.
     \n- GetSetBiosAttributesREDFISH.py -ip 192.168.0.120 -u root -p calvin --attribute-names EmbSata,NvmeMode --attribute-values RaidMode,Raid --reboot, this example shows setting multiple BIOS attributes with reboot now to apply.""")
     sys.exit(0)
-
 
 def check_supported_idrac_version():
     if args["x"]:
@@ -298,15 +295,6 @@ def get_job_status_scheduled():
 def loop_job_status_final():
     start_time = datetime.now()
     retry_count = 1
-    if args["x"]:
-        response = requests.get('https://%s/redfish/v1/Managers/iDRAC.Embedded.1/Jobs/%s' % (idrac_ip, job_id), verify=verify_cert, headers={'X-Auth-Token': args["x"]})
-    else:
-        response = requests.get('https://%s/redfish/v1/Managers/iDRAC.Embedded.1/Jobs/%s' % (idrac_ip, job_id), verify=verify_cert,auth=(idrac_username, idrac_password))
-    data = response.json()
-    if data['JobType'] == "RAIDConfiguration":
-        logging.info("- PASS, staged jid \"%s\" successfully created. Server will now reboot to apply the configuration changes" % job_id)
-    elif data['JobType'] == "RealTimeNoRebootConfiguration":
-        logging.info("- PASS, realtime jid \"%s\" successfully created. Server will apply the configuration changes in real time, no server reboot needed" % job_id)
     while True:
         if retry_count == 20:
             logging.warning("- WARNING, GET command retry count of 20 has been reached, script will exit")
@@ -318,12 +306,16 @@ def loop_job_status_final():
                 response = requests.get('https://%s/redfish/v1/Managers/iDRAC.Embedded.1/Jobs/%s' % (idrac_ip, job_id), verify=verify_cert,auth=(idrac_username, idrac_password))
         except requests.ConnectionError as error_message:
             logging.info("- INFO, GET request failed due to connection error, retry")
-            time.sleep(15)
+            if "powercyclerequest" in args["attribute_names"].lower():
+                logging.info("- INFO, PowerCycleRequest attribute detected, virtual a/c cycle is running. Script will sleep for 180 seconds, retry")
+                time.sleep(180)
+            else:
+                time.sleep(15)
             retry_count += 1
             continue
         current_time = (datetime.now()-start_time)
         if response.status_code != 200:
-            logging.error("\n- FAIL, GET command failed to check job status, return code is %s" % statusCode)
+            logging.error("\n- FAIL, GET command failed to check job status, return code is %s" % response.status_code)
             logging.error("Extended Info Message: {0}".format(req.json()))
             sys.exit(0)
         data = response.json()
@@ -434,12 +426,10 @@ def reboot_server():
         logging.error("- FAIL, unable to get current server power state to perform either reboot or power on")
         sys.exit(0)
 
-
-
 if __name__ == "__main__":
     if args["script_examples"]:
         script_examples()
-    if args["ip"] and args["ssl"] or args["u"] or args["p"] or args["x"]:
+    if args["ip"] or args["ssl"] or args["u"] or args["p"] or args["x"]:
         idrac_ip = args["ip"]
         idrac_username = args["u"]
         if args["p"]:
@@ -475,15 +465,10 @@ if __name__ == "__main__":
             create_next_boot_config_job()
             get_job_status_scheduled()
             reboot_server()
-            time.sleep(20)
             loop_job_status_final()
         else:
             create_next_boot_config_job()
             get_job_status_scheduled()
             logging.info("- INFO, argument --reboot not detected, server will not auto reboot. Config job is still scheduled and will execute on next server manual reboot.")
     else:
-        print("\n- FAIL, either missing parameter(s) or incorrect parameter(s) passed in. If needed, execute script with -h for script help")
-        
-            
-        
-
+        logging.error("\n- FAIL, invalid argument values or not all required parameters passed in. See help text or argument --script-examples for more details.")

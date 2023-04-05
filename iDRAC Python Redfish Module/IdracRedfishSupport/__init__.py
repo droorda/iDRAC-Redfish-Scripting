@@ -1,11 +1,7 @@
-#!/usr/bin/python
 #!/usr/bin/python3
 #
-#
-#
-#
 #_author_ = Texas Roemer <Texas_Roemer@Dell.com>
-# _version_ = 4.0
+# _version_ = 8.0
 #
 # Copyright (c) 2022, Dell, Inc.
 #
@@ -15,9 +11,6 @@
 # FOR A PARTICULAR PURPOSE. You should have received a copy of GPLv2
 # along with this software; if not, see
 # http://www.gnu.org/licenses/old-licenses/gpl-2.0.txt.
-#
-#
-#
 #
 # Python module for iDRAC Redfish support to perform multiple workflows. 
 
@@ -32,7 +25,6 @@ import requests
 import sys
 import time
 import warnings
-import webbrowser
 
 from datetime import datetime
 from pprint import pprint
@@ -45,7 +37,7 @@ def set_iDRAC_script_session(script_examples=""):
     global creds
     global x_auth_token
     if script_examples:
-        print("\n- IdracRedfishSupport.set_iDRAC_session(), this example will prompt the user to input iDRAC IP, iDRAC username, iDRAC password, SSL cert verification and create X-auth token session")
+        print("\n- IdracRedfishSupport.set_iDRAC_script_session(), this example will prompt the user to input iDRAC IP, iDRAC username, iDRAC password, SSL cert verification and create X-auth token session")
     else:
         x_auth_token = "no"
         creds = {}
@@ -129,7 +121,7 @@ def get_storage_controllers(script_examples=""):
             logging.error("- ERROR, status code %s returned, detailed error results:\n%s" % (response.status_code, data))
             return
         print("\n- Server controller(s) detected -\n")
-        controller_list=[]
+        controller_list = []
         for i in data['Members']:
             for ii in i.items():
                 controller = ii[1].split("/")[-1]
@@ -369,7 +361,58 @@ def reset_controller(script_examples="", controller_fqdd=""):
         else:
             logging.error("\n- ERROR, POST command failed to reset storage controller %s, status code is %s" % (controller_fqdd, response.status_code))
             data = response.json()
-            logigng.info("\n- POST command failure results:\n %s" % data)
+            logging.info("\n- POST command failure results:\n %s" % data)
+            return
+        time.sleep(5)
+        if x_auth_token == "yes":
+            response = requests.get('https://%s/redfish/v1/Managers/iDRAC.Embedded.1/Jobs/%s' % (creds["idrac_ip"], job_id),verify=creds["verify_cert"],headers={'X-Auth-Token': creds["idrac_x_auth_token"]})    
+        else:
+            response = requests.get('https://%s/redfish/v1/Managers/iDRAC.Embedded.1/Jobs/%s' % (creds["idrac_ip"], job_id),verify=creds["verify_cert"],auth=(creds["idrac_username"], creds["idrac_password"]))
+        data = response.json()
+        if response.status_code != 200:
+            logging.error("- ERROR, GET command failed, detailed error information: %s" % data)
+            return
+        if data['JobType'] == "RAIDConfiguration":
+            logging.info("- INFO, staged config job created, server will now reboot to execute the config job")
+        elif data['JobType'] == "RealTimeNoRebootConfiguration":
+            logging.info("- INFO, realtime config job created, job will get applied in real time with no server reboot needed")
+        loop_job_status_final()
+
+def change_virtual_disk_attributes(script_examples="", vd_fqdd="", diskcachepolicy="", readcachepolicy="", writecachepolicy=""):
+    """Function to change virtual disk attributes. Supported function arguments: vd_fqdd (possible value: VD FQDD), diskcachepolicy (possible values: Enabled and Disabled), readcachepolicy (Off, ReadAhead and AdaptiveReadAhead), writecachepolicy (ProtectedWriteBack, UnprotectedWriteBack and WriteThrough)."""
+    global job_id
+    if script_examples:
+        print("\n- IdracRedfishSupport.change_virtual_disk_attributes(vd_fqdd=\"Disk.Virtual.3:RAID.Mezzanine.1-1\", diskcachepolicy=\"Disabled\",writecachepolicy=\"UnprotectedWriteBack\",readcachepolicy=\"Off\"), this example shows changing VD disk, read and write cache policy attributes.")
+    else:
+        payload = {"@Redfish.SettingsApplyTime":{"ApplyTime":"Immediate"}}
+        if diskcachepolicy:
+            payload["Oem"]={"Dell":{"DellVolume":{"DiskCachePolicy": diskcachepolicy}}}
+        if readcachepolicy:
+            payload["ReadCachePolicy"] = readcachepolicy
+        if writecachepolicy:
+            payload["WriteCachePolicy"] = writecachepolicy
+        url = "https://%s/redfish/v1/Systems/System.Embedded.1/Storage/%s/Volumes/%s/Settings" % (creds["idrac_ip"], vd_fqdd.split(":")[-1], vd_fqdd)
+        if x_auth_token == "yes":
+            headers = {'content-type': 'application/json', 'X-Auth-Token': creds["idrac_x_auth_token"]}
+            response = requests.patch(url, data=json.dumps(payload), headers=headers, verify=creds["verify_cert"])
+        else:
+            headers = {'content-type': 'application/json'}
+            response = requests.patch(url, data=json.dumps(payload), headers=headers, verify=creds["verify_cert"],auth=(creds["idrac_username"],creds["idrac_password"]))
+        if response.status_code == 401:
+            logging.error("- ERROR, status code 401 detected, check to make sure your iDRAC script session has correct username/password credentials or if using X-auth token, confirm the session is still active.")
+            return
+        elif response.status_code == 202:
+            logging.info("\n- PASS: PATCH command passed to change VD attributes, status code %s returned" % response.status_code)
+            try:
+                job_id = response.headers['Location'].split("/")[-1]
+            except:
+                logging.error("- ERROR, unable to locate job ID in JSON headers output")
+                return
+            logging.info("- INFO, Job ID %s successfully created" % job_id)
+        else:
+            logging.error("\n- ERROR, PATCH command failed to change VD attributes, status code %s returned" % response.status_code)
+            data = response.json()
+            logging.info("\n- POST command failure results:\n %s" % data)
             return
         time.sleep(5)
         if x_auth_token == "yes":
@@ -421,11 +464,11 @@ def loop_job_status_final():
                     print("%s: %s" % (i[0],i[1]))
             break
         else:
-            logging.info("- INFO, job status not completed, current status: \"%s\"" % (data['Message']))
+            logging.info("- INFO, job status not completed, current status: \"%s\"" % (data['Message'].strip(".")))
             time.sleep(3)
             
-def create_virtual_disk(script_examples="", controller_fqdd="", disk_fqdds="", raid_level="", vd_name="default", vd_size=0, vd_stripesize=0):
-    """Function to create virtual disk. Function arguments: storage controller FQDD, disk FQDDs (if you\'re passing in multiple drives for VD creation, pass them in as a list), raid_level, supported integer values: 0, 1, 5, 6, 10, 50 and 60 (not all RAID levels are supported on each storage contoller), VD name is optional (if not passed in, controller will set using default name), VD size is optional (integer value in bytes) and if not passed in VD creation will use the full disk size, VD stripesize is optional (integer value in bytes) and if not passed in controller will assign the default stripesize for the RAID level."""
+def create_virtual_disk(script_examples="", controller_fqdd="", disk_fqdds="", raid_level="", vd_name="", vd_size="", vd_stripesize="", secure="", diskcachepolicy="", readcachepolicy="", writecachepolicy=""):
+    """Function to create virtual disk. Function arguments: controller_fqdd, disk_fqdds (if you\'re passing in multiple drives for VD creation, pass them in as a list), raid_level, supported integer values: 0, 1, 5, 6, 10, 50 and 60 (not all RAID levels are supported on each storage contoller), vd_name is optional (if not passed in, controller will set using default name), vd_size is optional (integer value in bytes) and if not passed in VD creation will use the full disk size, vd_stripesize is optional (integer value in bytes) and if not passed in controller will assign the default stripesize for the RAID level, secure is optional (pass in value of True to secure the VD during VD creation), diskcachepolicy is optional (possible values: Enabled and Disabled), readcachepolicy is optional (Off, ReadAhead and AdaptiveReadAhead), writecachepolicy (ProtectedWriteBack, UnprotectedWriteBack and WriteThrough)."""
     global job_id
     global job_type
     if script_examples:
@@ -472,18 +515,20 @@ def create_virtual_disk(script_examples="", controller_fqdd="", disk_fqdds="", r
             payload = {"VolumeType":volume_type,"Drives":final_disks_list}
         elif get_version >= 440:
             payload = {"RAIDType":volume_type,"Drives":final_disks_list}
-        if vd_size != 0:
-            payload["CapacityBytes"]=vd_size
-        else:
-            pass
-        if vd_stripesize != 0:
-            payload["OptimumIOSizeBytes"]=vd_stripesize
-        else:
-            pass
-        if vd_name != "default":
-            payload["Name"]=vd_name
-        else:
-            pass
+        if vd_size:
+            payload["CapacityBytes"] = vd_size
+        if vd_stripesize:
+            payload["OptimumIOSizeBytes"] = vd_stripesize
+        if vd_name:
+            payload["Name"] = vd_name
+        if secure:
+            payload["Encrypted"] = True
+        if diskcachepolicy:
+            payload["Oem"]={"Dell":{"DellVolume":{"DiskCachePolicy": diskcachepolicy}}}
+        if readcachepolicy:
+            payload["ReadCachePolicy"] = readcachepolicy
+        if writecachepolicy:
+            payload["WriteCachePolicy"] = writecachepolicy
         if x_auth_token == "yes":
             headers = {'content-type': 'application/json', 'X-Auth-Token': creds["idrac_x_auth_token"]}
             response = requests.post(url, data=json.dumps(payload), headers=headers, verify=creds["verify_cert"])
@@ -495,6 +540,7 @@ def create_virtual_disk(script_examples="", controller_fqdd="", disk_fqdds="", r
             return
         elif response.status_code == 202:
             logging.info("\n- PASS: POST command passed to create \"%s\" virtual disk, status code 202 returned" % volume_type)
+            time.sleep(5)
         else:
             logging.error("\n- ERROR, POST command failed, status code %s returned" % response.status_code)
             data = response.json()
@@ -743,6 +789,7 @@ def delete_virtual_disk(script_examples="", virtual_disk_fqdd=""):
             return
         elif response.status_code == 202:
             logging.info("\n- PASS: DELETE command passed to delete \"%s\" virtual disk, status code 202 returned" % virtual_disk_fqdd)
+            time.sleep(5)
         else:
             logging.error("\n- ERROR, DELETE command failed, status code %s returned" % response.status_code)
             data = response.json()
@@ -821,6 +868,7 @@ def initialize_virtual_disk(script_examples="", virtual_disk_fqdd="", init_type=
             return
         elif response.status_code == 202:
             logging.info("\n- PASS: POST command passed to initialize \"%s\" virtual disk, status code 202 returned" % virtual_disk_fqdd)
+            time.sleep(5)
         else:
             logging.error("\n- ERROR, POST command failed, status code %s returned" % response.status_code)
             data = response.json()
@@ -856,7 +904,7 @@ def initialize_virtual_disk(script_examples="", virtual_disk_fqdd="", init_type=
                     return
                 if response.status_code != 200:
                     logging.error("\n- ERROR, GET command failed to check job status, return code %s" % response.status_code)
-                    logigng.error("Extended Info Message: {0}".format(req.json()))
+                    logging.error("Extended Info Message: {0}".format(req.json()))
                     return
                 time.sleep(5)
                 data = response.json()
@@ -898,6 +946,7 @@ def secure_erase_disk(script_examples="", controller_fqdd="", disk_fqdd=""):
             return
         elif response.status_code == 202:
             logging.info("\n- PASS: POST command passed to secure erase disk \"%s\", status code 202 returned" % disk_fqdd)
+            time.sleep(5)
         else:
             logging.error("\n- ERROR, POST command failed, status code %s returned" % response.status_code)
             data = response.json()
@@ -978,6 +1027,7 @@ def assign_disk_hotspare(script_examples="", hotspare_type="", disk_fqdd="", vir
             return
         elif response.status_code == 202:
             logging.info("\n- PASS: POST command passed to set disk \"%s\" as \"%s\" hot spare" % (disk_fqdd, hotspare_type))
+            time.sleep(5)
             try:
                 job_id = response.headers['Location'].split("/")[-1]
             except:
@@ -1023,6 +1073,7 @@ def unassign_disk_hotspare(script_examples="", disk_fqdd=""):
             return
         elif response.status_code == 202:
             logging.info("\n- PASS: POST command passed to unassign disk \"%s\" as hotspare" % (disk_fqdd))
+            time.sleep(5)
             try:
                 job_id = response.headers['Location'].split("/")[-1]
             except:
@@ -1079,6 +1130,7 @@ def set_storage_controller_key(script_examples="", controller_fqdd="", key_id=""
             return
         elif response.status_code == 202:
             logging.info("\n- PASS: POST command passed to set the controller key for controller %s" % controller_fqdd)
+            time.sleep(5)
             try:
                 job_id = response.headers['Location'].split("/")[-1]
             except:
@@ -1143,6 +1195,7 @@ def rekey_storage_controller_key(script_examples="", controller_fqdd="", encrypt
             return
         elif response.status_code == 202:
             logging.info("\n- PASS: POST command passed to rekey the controller for %s" % controller_fqdd)
+            time.sleep(5)
             try:
                 job_id = response.headers['Location'].split("/")[-1]
             except:
@@ -1198,6 +1251,7 @@ def remove_storage_controller_key(script_examples="", controller_fqdd=""):
             return
         elif response.status_code == 202:
             print("\n- PASS: POST command passed to remove controller key for controller %s" % controller_fqdd)
+            time.sleep(5)
             try:
                 job_id = response.headers['Location'].split("/")[-1]
             except:
@@ -1253,6 +1307,7 @@ def check_consistency_virtual_disk(script_examples="", virtual_disk_fqdd=""):
             return
         elif response.status_code == 202:
             logging.info("\n- PASS: POST command passed to check consistency for virtual disk %s, status code 202 returned" % (virtual_disk_fqdd))
+            time.sleep(5)
         else:
             logging.error("\n- FAIL, POST command failed, status code is %s" % response.status_code)
             data = response.json()
@@ -1340,6 +1395,7 @@ def secure_virtual_disk(script_examples="", virtual_disk_fqdd=""):
             return
         elif response.status_code == 202:
             logging.info("\n- PASS: POST command passed to secure virtual disk %s" % virtual_disk_fqdd)
+            time.sleep(5)
             try:
                 job_id = response.headers['Location'].split("/")[-1]
             except:
@@ -1385,6 +1441,7 @@ def set_controller_boot_virtual_disk(script_examples="", controller_fqdd="", vir
             return
         elif response.status_code == 202:
             logging.info("\n- PASS: POST command passed to set boot virtual disk %s" % virtual_disk_fqdd)
+            time.sleep(5)
             try:
                 job_id = response.headers['Location'].split("/")[-1]
             except:
@@ -1429,6 +1486,7 @@ def rename_virtual_disk(script_examples="", virtual_disk_fqdd="", vd_name=""):
             return
         elif response.status_code == 202:
             logging.info("\n- PASS: POST command passed to rename boot virtual disk %s" % virtual_disk_fqdd)
+            time.sleep(5)
             try:
                 job_id = response.headers['Location'].split("/")[-1]
             except:
@@ -2495,7 +2553,7 @@ def reset_bios_default_settings(script_examples="", reboot=""):
             logging.info("\n- PASS: status code %s returned for POST command to reset BIOS to default settings" % response.status_code)
         else:
             logging.error("\n- FAIL, Command failed, status code %s returned" % response.status_code)
-            detail_message=str(response.__dict__)
+            detail_message = str(response.__dict__)
             logging.error(detail_message)
             return
         if reboot.lower() == "yes":
@@ -2921,7 +2979,7 @@ def set_iDRAC_attributes(script_examples="", group_name="", attribute_names="", 
             return
         
 def export_hardware_inventory(script_examples="", get_supported_share_types="", export_hw_inventory="", share_ip="", share_type="", share_name="", share_username="", share_password="", ignore_cert_warning="", filename=""):
-    """Function to export server hardware inventory locally or network shares. Supported function arguments: get_supported_share_types (possible value: True, export_hw_inventory (possible value: True), share_type (execute IdracRedfishSupport.export_hardware_inventory(get_supported_share_types=True) to get supported share type values), share_ip, share_name, share_username (required for CIFS or auth enabled for HTTP/HTTPS), share_userpassword (required for CIFS or auth enabled for HTTP/HTTPS), ignore_cert_warning (possible values: Off and On). This argument is only supported for HTTPS share) and filename (pass in an unique string name with .xml extension (HW inventory will only be exported in XML format)."""
+    """Function to export server hardware inventory locally or network shares. Supported function arguments: get_supported_share_types (possible value: True, export_hw_inventory (possible value: True), share_type (execute IdracRedfishSupport.export_hardware_inventory(get_supported_share_types=True) to get supported share type values), share_ip, share_name, share_username (required for CIFS or auth enabled for HTTP/HTTPS), share_userpassword (required for CIFS or auth enabled for HTTP/HTTPS), ignore_cert_warning (possible values: Off and On). This argument is only supported for HTTPS share) and filename (pass in an unique string name with .xml extension (HW inventory will only be exported in XML format) filename argument is optional, if you do not pass in this argument default filename hwinv.xml will be used."""
     method = "ExportHWInventory"
     if script_examples:
         print("""\n- IdracRedfishSupport.export_hardware_inventory(get_supported_share_types=True), this example will return supported share types for export HW inventory.
@@ -2981,36 +3039,23 @@ def export_hardware_inventory(script_examples="", get_supported_share_types="", 
             data = response.json()
             logging.error("\n- POST command failure results:\n %s" % data)
             return
-        if share_type == "local" or share_type == "Local":
-            logging.info("- INFO, Redfish export HW inventory URI: \"%s\"\n" % response.headers['Location'])
-            try:
-                os.remove(filename)
-            except:
-                pass
-            if x_auth_token == "yes":
-                response = requests.get('https://%s%s' % (creds["idrac_ip"],response.headers['Location']),verify=creds["verify_cert"],headers={'X-Auth-Token': creds["idrac_x_auth_token"]})    
+        if share_type.lower() == "local":
+            if response.headers['Location'] == "/redfish/v1/Dell/hwinv.xml":
+                if x_auth_token == "yes":
+                    response = requests.get('https://%s%s' % (creds["idrac_ip"], response.headers['Location']),verify=creds["verify_cert"],headers={'X-Auth-Token': creds["idrac_x_auth_token"]})    
+                else:
+                    response = requests.get('https://%s%s' % (creds["idrac_ip"], response.headers['Location']),verify=creds["verify_cert"],auth=(creds["idrac_username"], creds["idrac_password"]))
+                if filename:
+                    export_filename = filename
+                else:
+                    export_filename = "hwinv.xml"    
+                with open(export_filename, "wb") as output:
+                    output.write(response.content)
+                logging.info("\n- INFO, check your local directory for hardware inventory XML file \"%s\"" % export_filename)
+                return
             else:
-                response = requests.get('https://%s%s' % (creds["idrac_ip"],response.headers['Location']),verify=creds["verify_cert"],auth=(creds["idrac_username"], creds["idrac_password"]))
-            if response.status_code != 200:
-                logging.error("\n- FAIL, GET command failed, status code %s returned" % (response.status_code))
-                logging.error("\n- Detailed failure results:\n %s" % data)
+                logging.error("- ERROR, unable to locate exported hardware inventory URI in headers output. Manually run GET on URI %s to see if file can be exported." % response.headers['Location'])
                 return
-            try:
-                filename_open = open(filename,"a")
-            except:
-                logging.error("- FAIL, missing filename argument, either execute again passing in filename or GET on URI \"/redfish/v1/Dell/hwinv.xml\" to get exported HW inventory file.")
-                return
-            dict_response = response.__dict__['_content']
-            string_convert=str(dict_response)
-            string_convert=string_convert.lstrip("'b")
-            string_convert=string_convert.rstrip("'")
-            string_convert=string_convert.split("\\n")
-            for i in string_convert:
-                filename_open.writelines(i)
-                filename_open.writelines("\n")
-            filename_open.close()
-            logging.info("- Exported HW inventory captured to file \"%s\%s\"" % (os.getcwd(), filename))
-            return
         else:
             try:
                 job_id = response.headers['Location'].split("/")[-1]
@@ -3053,7 +3098,7 @@ def export_hardware_inventory(script_examples="", get_supported_share_types="", 
         return
 
 def export_iDRAC_lifecycle_logs(script_examples="", get_supported_share_types="", export_lc_logs="", share_ip="", share_type="", share_name="", share_username="", share_password="", ignore_cert_warning="", filename=""):
-    """Function to export iDRAC Lifecycle (LC) logs locally or network shares. Supported function arguments: get_supported_share_types (possible value: True, export_lc_logs (possible value: True), share_type (execute IdracRedfishSupport.export_iDRAC_lifecycle_logs(get_supported_share_types=True), share_ip, share_name, share_username (if auth is enabled), share_userpassword (if auth is enabled), ignore_cert_warning (possible values: Off and On). This argument is only supported for HTTPS share) and filename (pass in an unique string name with .xml extension (iDRAC LC logs will only be exported in XML format). Execute examples: IdracRedfishSupport.export_iDRAC_lifecycle_logs(share_type=\"local\",filename=\"R640_lc_logs.xml\") and IdracRedfishSupport.export_iDRAC_lifecycle_logs(share_type=\"NFS\",share_ip=\"192.168.0.130\",share_name=\"/nfs\",filename=\"R640_LC_logs.xml\")."""
+    """Function to export iDRAC Lifecycle (LC) logs locally or network shares. Supported function arguments: get_supported_share_types (possible value: True, export_lc_logs (possible value: True), share_type (execute IdracRedfishSupport.export_iDRAC_lifecycle_logs(get_supported_share_types=True), share_ip, share_name, share_username (if auth is enabled), share_userpassword (if auth is enabled), ignore_cert_warning (possible values: Off and On). This argument is only supported for HTTPS share) and filename (pass in an unique string name with .xml extension (iDRAC LC logs will only be exported in XML format). Filename is optional, if you do not pass in this argument default filename lclog.xml will be used."""
     if script_examples:
         print("""\n- IdracRedfishSupport.export_iDRAC_lifecycle_logs(get_supported_share_types=True), this example will return supported share types for export iDRAC LC logs.
         \n- IdracRedfishSupport.export_iDRAC_lifecycle_logs(export_lc_logs=True, share_type="local", filename="R740_LC_logs.xml"), this example will export iDRAC LC logs locally.
@@ -3112,36 +3157,23 @@ def export_iDRAC_lifecycle_logs(script_examples="", get_supported_share_types=""
             data = response.json()
             logging.error("\n- POST command failure results:\n %s" % data)
             return
-        if share_type == "local" or share_type == "Local":
-            logging.info("- INFO, Redfish export iDRAC LC logs URI: \"%s\"\n" % response.headers['Location'])
-            try:
-                os.remove(filename)
-            except:
-                pass
-            if x_auth_token == "yes":
-                response = requests.get('https://%s%s' % (creds["idrac_ip"],response.headers['Location']),verify=creds["verify_cert"],headers={'X-Auth-Token': creds["idrac_x_auth_token"]})    
+        if share_type.lower() == "local":
+            if response.headers['Location'] == "/redfish/v1/Dell/lclog.xml":
+                if x_auth_token == "yes":
+                    response = requests.get('https://%s%s' % (creds["idrac_ip"], response.headers['Location']),verify=creds["verify_cert"],headers={'X-Auth-Token': creds["idrac_x_auth_token"]})    
+                else:
+                    response = requests.get('https://%s%s' % (creds["idrac_ip"], response.headers['Location']),verify=creds["verify_cert"],auth=(creds["idrac_username"], creds["idrac_password"]))
+                if filename:
+                    export_filename = filename
+                else:
+                    export_filename = "lclog.xml"    
+                with open(export_filename, "wb") as output:
+                    output.write(response.content)
+                logging.info("\n- INFO, check your local directory for exported LC log \"%s\"" % export_filename)
+                return
             else:
-                response = requests.get('https://%s%s' % (creds["idrac_ip"],response.headers['Location']),verify=creds["verify_cert"],auth=(creds["idrac_username"], creds["idrac_password"]))
-            if response.status_code != 200:
-                logging.error("\n- FAIL, GET command failed, status code %s returned" % (method, response.status_code))
-                logging.error("\n- Detailed failure results:\n %s" % data)
+                logging.error("- ERROR, unable to locate exported LC log URI in headers output. Manually run GET on URI %s to see if file can be exported." % response.headers['Location'])
                 return
-            try:
-                filename_open = open(filename,"a")
-            except:
-                logging.error("- FAIL, filename argument not detected, unable to write LC logs content to file. LC Logs can still be accessed by executing GET on URI \"/redfish/v1/Dell/lclog.xml\"")
-                return
-            dict_response = response.__dict__['_content']
-            string_convert=str(dict_response)
-            string_convert=string_convert.lstrip("'b")
-            string_convert=string_convert.rstrip("'")
-            string_convert=string_convert.split("\\n")
-            for i in string_convert:
-                filename_open.writelines(i)
-                filename_open.writelines("\n")
-            filename_open.close()
-            logging.info("- Exported iDRAC LC logs captured to file \"%s\%s\"" % (os.getcwd(), filename))
-            return
         else:
             try:
                 job_id = response.headers['Location'].split("/")[-1]
@@ -3245,15 +3277,19 @@ def export_server_factory_configuration(script_examples="", get_supported_share_
         if share_type.lower() == "local":
             if response.headers['Location'] == "/redfish/v1/Dell/factoryconfig.xml":
                 while True:
-                    request = input(str("\n- INFO, open browser session to download factory config XML? Type \"y\" to download or \"n\" to not download: "))
-                    if request.lower() == "y":
-                        webbrowser.open("https://%s%s" % (creds["idrac_ip"], response.headers["Location"]))
-                        logging.info("\n- INFO, check your default browser session for downloaded factory config XML file.")
-                        break
-                    elif request.lower() == "n":
-                        break
+                    if x_auth_token == "yes":
+                        response = requests.get('https://%s%s' % (creds["idrac_ip"], response.headers['Location']), verify=creds["verify_cert"], headers={'X-Auth-Token': creds["idrac_x_auth_token"]})   
                     else:
-                        logging.error("\n- FAIL, incorrect value passed in for request, try again")
+                        response = requests.get('https://%s%s' % (creds["idrac_ip"], response.headers['Location']), verify=creds["verify_cert"],auth=(creds["idrac_username"], creds["idrac_password"]))
+                    export_filename = "factoryconfig.xml"    
+                    with open(export_filename, "wb") as output:
+                        output.write(response.content)
+                    logging.info("\n- INFO, check your local directory for factory config XML file \"%s\"" % export_filename)
+                    return
+            else:
+                data = response.json()
+                logging.error("- ERROR, unable to locate factory config XML URI in headers output, JSON response: \n%s" % data)
+                return                      
         else:
             try:
                 job_id = response.headers['Location'].split("/")[-1]
@@ -3337,7 +3373,7 @@ def export_server_screen_shot(script_examples="", file_type=""):
         return
     
 def export_server_video_log(script_examples="", file_type=""):
-    """Function to export server video log saved by iDRAC. Supported function argument: file_type(supported values: BootCaptureVideo and CrashCaptureVideo. NOTE: make sure to pass in the exact case value). Note: script will prompt you to save the zip file locally using your default browser. Extract the video files(dvc format) from the zip to view them."""
+    """Function to export server video log saved by iDRAC. Supported function argument: file_type(supported values: BootCaptureVideo and CrashCaptureVideo. NOTE: make sure to pass in the exact case value). Extract the video files(dvc format) from the zip to view them."""
     if script_examples:
         print("""\n- IdracRedfishSupport.export_server_video_log(file_type="BootCaptureVideo"), this example will export latest boot capture video.
         \n- IdracRedfishSupport.export_server_video_log(file_type="CrashCaptureVideo"), this example will export latest crash capture video.""")
@@ -3369,15 +3405,15 @@ def export_server_video_log(script_examples="", file_type=""):
             logging.error("- FAIL, unable to locate video capture URI in POST response output")
             return
         while True:
-            request = input(str("\n- INFO, open browser session to download video capture zip file? Type \"y\" to download or \"n\" to not download: "))
-            if request.lower() == "y":
-                webbrowser.open('https://%s%s' % (creds["idrac_ip"], video_log_capture_zip_uri))
-                logging.info("\n- INFO, check your default browser session for downloaded video capture zip file. If needed to watch the video capture files(dvc format), download the video player from the iDRAC GUI/Maintenance/Troubleshooting page.")
-                break
-            elif request.lower() == "n":
-                break
+            if x_auth_token == "yes":
+                response = requests.get('https://%s%s' % (creds["idrac_ip"], response.headers['Location']), verify=creds["verify_cert"], headers={'X-Auth-Token': creds["idrac_x_auth_token"]})   
             else:
-                logging.error("\n- FAIL, incorrect value passed in for request, try again")
+                response = requests.get('https://%s%s' % (creds["idrac_ip"], response.headers['Location']), verify=creds["verify_cert"],auth=(creds["idrac_username"], creds["idrac_password"]))
+            export_filename = "bootlogs.zip"    
+            with open(export_filename, "wb") as output:
+                output.write(response.content)
+            logging.info("\n- INFO, check your local directory for \"%s\" file. To watch the video capture files(dvc format), download the video player from the iDRAC GUI/Maintenance/Troubleshooting page." % export_filename)
+            return
     else:
         logging.warning("- WARNING, missing arguments or incorrect argument values passed in. Check help text and script examples for more details")
         return
@@ -3871,24 +3907,20 @@ def export_support_assist_collection(script_examples="", get_supported_share_typ
             data = response.json()
             try:
                 if response.headers['Location'] == "/redfish/v1/Dell/sacollect.zip" or response.headers['Location'] == "/redfish/v1/Oem/Dell/sacollect.zip":
-                    logging.info("- PASS, job ID successfully marked completed. Support Assist logs filename: \"%s\"" % response.headers['Location'].split("/")[-1])
-                    python_version = sys.version_info
-                    if python_version.major <= 2:
-                        request = raw_input("\n* Open browser session to download Support Assist file? Type \"y\" to download or \"n\" to not download: ")
-                    elif python_version.major >= 3:
-                        request = input(str("\n* Open browser session to download Support Assist file? Type \"y\" to download or \"n\" to not download: "))
+                    logging.info("- PASS, job ID %s successfully marked completed" % job_id)
+                    if x_auth_token == "yes":
+                        response = requests.get('https://%s%s' % (creds["idrac_ip"], response.headers['Location']), verify=creds["verify_cert"], headers={'X-Auth-Token': creds["idrac_x_auth_token"]})   
                     else:
-                        logging.error("- FAIL, unable to get current python version, manually run GET on URI \"%s\" to get Support Assist logs capture" % response.headers['Location'])
-                        return
-                    if request.lower() == "y":
-                        webbrowser.open('https://%s%s' % (creds["idrac_ip"], response.headers['Location']))
-                        logging.info("\n- INFO, check you default browser session for downloaded Support Assist logs")
-                        return
-                    elif str(request).lower() == "n":
-                        return
-                    else:
-                        logging.error("- FAIL, incorrect value passed in, manually run GET on URI %s to download SA collection" % response.headers['Location'])
-                        return
+                        response = requests.get('https://%s%s' % (creds["idrac_ip"], response.headers['Location']), verify=creds["verify_cert"],auth=(creds["idrac_username"], creds["idrac_password"]))
+                    SA_export_filename = "sacollect.zip"    
+                    with open(SA_export_filename, "wb") as output:
+                        output.write(response.content)
+                    logging.info("\n- INFO, check your local directory for SupportAssist collection zip file \"%s\"" % SA_export_filename)
+                    return
+                else:
+                    data = response.json()
+                    logging.error("- ERROR, unable to locate SA collection URI in headers output, JSON response: \n%s" % data)
+                    return
             except:
                 if str(current_time)[0:7] >= "1:00:00":
                     logging.error("\n- FAIL: Timeout of 1 hour has been hit, script stopped\n")
@@ -4395,7 +4427,7 @@ def generate_replace_iDRAC_CSR(script_examples="", get_current_certs="", generat
         data_post = response.json()
         if response.status_code != 200:
             logging.error("- FAIL, generate CSR failed, status code %s returned, detailed error results: \n%s" % (response.status_code, data_post))
-            sys.exit()
+            return
         logging.info("\n- INFO, CSR generated for iDRAC %s\n" % creds["idrac_ip"])
         logging.info(data_post["CSRString"])
         if x_auth_token == "yes":
@@ -4521,7 +4553,7 @@ def export_import_iDRAC_certs(script_examples="", get_current_certs="", get_cert
         if response.status_code != 200:
             logging.error("\n- ERROR, GET commmand failed to get cert types supported for export/import cert operations, status code %s returned" % response.status_code)
             logging.error("- Detailed error results: %s" % data)
-            sys.exit(0)
+            return
         for i in data["Actions"].items():
             if i[0] == "#DelliDRACCardService.ExportSSLCertificate":
                 logging.info("\n- Support cert type values for ExportSSLCertificate -\n")
@@ -5199,7 +5231,7 @@ def export_import_server_configuration_profile_network_share(script_examples="",
             data = response.json()
             if str(current_time)[0:7] >= "0:05:00":
                 logging.error("\n- FAIL: Timeout of 5 minutes has been hit, script stopped\n")
-                sys.exit()
+                return
             elif "fail" in data['Message'].lower() or "unable" in data['Message'].lower() or "not" in data['Message'].lower():
                 logging.error("- FAIL: job ID %s failed, failed message is: %s" % (job_id, data['Message']))
                 return
@@ -6126,41 +6158,69 @@ def install_from_repository(script_examples="", get_fw_inventory="", get_repo_up
         return
 
 def insert_eject_virtual_media(script_examples="", get_attach_status="", insert_virtual_media="", eject_virtual_media="", image_path=""):
-    """Function to either get current virtual media attach status or insert/eject virtual media. Supported arguments and possible values: get_attach_status (supported value: True), insert_virtual_media (supported values: cd and removeabledisk), eject_virtual_media (supported values: cd and removeabledisk) and image_path (pass in image path location of the virtual device to insert. Supported network share types: HTTP, HTTPS, NFS and CIFS.""" 
+    """Function to either get current virtual media attach status or insert/eject virtual media. With iDRAC 6.00.00 or newer you can now attach multiple virtual media devices at the same time based off index ID (see script examples for more help). Supported arguments and possible values: get_attach_status (supported value: True), insert_virtual_media (supported values: cd and removeabledisk (iDRAC 5.10.10 or older), 1 and 2 (iDRAC 6.00.00 or newer)), eject_virtual_media (supported values: cd and removeabledisk (iDRAC 5.10.10 or older), 1 and 2 (iDRAC 6.00.00 or newer)) and image_path (pass in image path location of the virtual device to insert. Supported network share types: HTTP, HTTPS, NFS and CIFS.""" 
     if script_examples:
         print("""\n- IdracRedfishSupport.insert_eject_virtual_media(get_attach_status=True), this example will return current attach status details all virtual media devices.)
-        \n- IdracRedfishSupport.insert_eject_virtual_media(insert_virtual_media="cd", image_path="192.168.0.120:/nfs/ESXi7.iso"), this example will insert(attach) virtual media ISO image using NFS share.
-        \n- IdracRedfishSupport.insert_eject_virtual_media(eject_virtual_media="cd"), this example will eject(detach) virtual media CD device attached.
-        \n- IdracRedfishSupport.insert_eject_virtual_media(insert_virtual_media="cd", image_path="//administrator:Passw0rd123@192.168.0.130/cifs_share_vm/ESXi7.iso"), this example will insert(attach) virtual media ISO image using CIFS share.
-        \n- IdracRedfishSupport.insert_eject_virtual_media(insert_virtual_media="cd", image_path="https://https_user:Password123@192.168.0.130/https_share/VMware-ESXi-7.iso", this example will insert(attach) virtual media ISO image using HTTPS share with auth.
-        \n- IdracRedfishSupport.insert_eject_virtual_media(insert_virtual_media="cd", image_path="https://3.137.219.52/centos/7/isos/x86_64/CentOS-7-live-GNOME-x86_64.iso"), this example will insert(attach) virutl media ISO image using HTTPS share with no auth.
-        \n- IdracRedfishSupport.insert_eject_virtual_media(insert_virtual_media="removeabledisk", image_path="192.168.0.140:/nfs/idsdm.img"), this example will insert(attach) virtual media IMG image using NFS share.""")
-
-    elif get_attach_status:
-        virtual_media_uris = []
+        \n- IdracRedfishSupport.insert_eject_virtual_media(insert_virtual_media="cd", image_path="192.168.0.120:/nfs/ESXi7.iso"), this example using iDRAC 5.10.10 will insert(attach) virtual media ISO image using NFS share.
+        \n- IdracRedfishSupport.insert_eject_virtual_media(eject_virtual_media="cd"), this example using iDRAC 5.10.10 will eject(detach) virtual media CD device attached.
+        \n- IdracRedfishSupport.insert_eject_virtual_media(insert_virtual_media="cd", image_path="//administrator:Passw0rd123@192.168.0.130/cifs_share_vm/ESXi7.iso"), this example using iDRAC 5.10.10 will insert(attach) virtual media ISO image using CIFS share.
+        \n- IdracRedfishSupport.insert_eject_virtual_media(insert_virtual_media="cd", image_path="https://https_user:Password123@192.168.0.130/https_share/VMware-ESXi-7.iso", this example using iDRAC 5.10.10 will insert(attach) virtual media ISO image using HTTPS share with auth.
+        \n- IdracRedfishSupport.insert_eject_virtual_media(insert_virtual_media="cd", image_path="https://3.137.219.52/centos/7/isos/x86_64/CentOS-7-live-GNOME-x86_64.iso"), this example using iDRAC 5.10.10 will insert(attach) virutl media ISO image using HTTPS share with no auth.
+        \n- IdracRedfishSupport.insert_eject_virtual_media(insert_virtual_media="removeabledisk", image_path="192.168.0.140:/nfs/idsdm.img"), this example using iDRAC 5.10.10 will insert(attach) virtual media IMG image using NFS share.
+        \n- IdracRedfishSupport.insert_eject_virtual_media(insert_virtual_media=1, image_path="192.168.0.130:/nfs/boot.iso"), this example using iDRAC 6.00.00 shows attaching virtual media ISO for index 1 device.
+        \n- IdracRedfishSupport.insert_eject_virtual_media(insert_virtual_media=2, image_path="192.168.0.130:/nfs/RHEL8.4.iso"), this example using iDRAC 6.00.00 shows attaching virtual media ISO for index 2 device.
+        \n- IdracRedfishSupport.insert_eject_virtual_media(eject_virtual_media=1), this example using iDRAC 6.00.00 shows ejecting virtual media index 1 device.
+        \n- IdracRedfishSupport.insert_eject_virtual_media(eject_virtual_media=2), this example using iDRAC 6.00.00 shows ejecting virtual media index 2 device.""")
+    else:
         if x_auth_token == "yes":
-            response = requests.get('https://%s/redfish/v1/Managers/iDRAC.Embedded.1/VirtualMedia?$expand=*($levels=1)' % creds["idrac_ip"], verify=creds["verify_cert"],headers={'X-Auth-Token': creds["idrac_x_auth_token"]})    
+            response = requests.get('https://%s/redfish/v1/Managers/iDRAC.Embedded.1?$select=FirmwareVersion' % creds["idrac_ip"], verify=creds["verify_cert"],headers={'X-Auth-Token': creds["idrac_x_auth_token"]})    
         else:
-            response = requests.get('https://%s/redfish/v1/Managers/iDRAC.Embedded.1/VirtualMedia?$expand=*($levels=1)' % creds["idrac_ip"], verify=creds["verify_cert"],auth=(creds["idrac_username"], creds["idrac_password"]))
+            response = requests.get('https://%s/redfish/v1/Managers/iDRAC.Embedded.1?$select=FirmwareVersion' % creds["idrac_ip"], verify=creds["verify_cert"],auth=(creds["idrac_username"], creds["idrac_password"]))
+        data = response.json()
+        if response.status_code == 401:
+            logging.error("- ERROR, status code 401 detected, check to make sure your iDRAC script session has correct username/password credentials or if using X-auth token, confirm the session is still active.")
+            return
+        elif response.status_code != 200:
+            logging.warning("\n- WARNING, unable to get current iDRAC version installed")
+            return
+        if int(data["FirmwareVersion"].replace(".","")) >= 6000000:
+            iDRAC_version = "new"
+        else:
+            iDRAC_version = "old"
+
+    if get_attach_status:
+        virtual_media_uris = []
+        if iDRAC_version == "old":
+            if x_auth_token == "yes":
+                response = requests.get('https://%s/redfish/v1/Managers/iDRAC.Embedded.1/VirtualMedia?$expand=*($levels=1)' % creds["idrac_ip"], verify=creds["verify_cert"],headers={'X-Auth-Token': creds["idrac_x_auth_token"]})    
+            else:
+                response = requests.get('https://%s/redfish/v1/Managers/iDRAC.Embedded.1/VirtualMedia?$expand=*($levels=1)' % creds["idrac_ip"], verify=creds["verify_cert"],auth=(creds["idrac_username"], creds["idrac_password"]))
+        if iDRAC_version == "new":
+            if x_auth_token == "yes":
+                response = requests.get('https://%s/redfish/v1/Systems/System.Embedded.1/VirtualMedia?$expand=*($levels=1)' % creds["idrac_ip"], verify=creds["verify_cert"],headers={'X-Auth-Token': creds["idrac_x_auth_token"]})    
+            else:
+                response = requests.get('https://%s/redfish/v1/Systems/System.Embedded.1/VirtualMedia?$expand=*($levels=1)' % creds["idrac_ip"], verify=creds["verify_cert"],auth=(creds["idrac_username"], creds["idrac_password"]))   
         data = response.json()
         if response.status_code != 200:
             logging.error("\n- ERROR, GET command failed to get virtual media attach status details, status code %s returned" % response.status_code)
             logging.error(data)
             return
-        for i in data.items():
+        print("\n")
+        for i in data["Members"]:
             pprint(i)
+            print("\n")
 
     elif insert_virtual_media:
-        if insert_virtual_media.lower() == "cd":
-            url = "https://%s/redfish/v1/Managers/iDRAC.Embedded.1/VirtualMedia/CD/Actions/VirtualMedia.InsertMedia" % creds["idrac_ip"]
-            media_device = "CD"
-        elif insert_virtual_media.lower() == "removeabledisk":
-            url = "https://%s/redfish/v1/Managers/iDRAC.Embedded.1/VirtualMedia/RemovableDisk/Actions/VirtualMedia.InsertMedia" % creds["idrac_ip"]
-            media_device = "Removable Disk"
-        else:
-            logging.error("- FAIL, invalid value passed in for argument insert_virtual_media.")
-            return
-        logging.info("\n - INFO, insert(attached) \"%s\" virtual media device \"%s\"" % (media_device, image_path))
+        if iDRAC_version == "old":
+            if insert_virtual_media.lower() == "cd":
+                url = "https://%s/redfish/v1/Managers/iDRAC.Embedded.1/VirtualMedia/CD/Actions/VirtualMedia.InsertMedia" % creds["idrac_ip"]
+            elif insert_virtual_media.lower() == "removeabledisk":
+                url = "https://%s/redfish/v1/Managers/iDRAC.Embedded.1/VirtualMedia/RemovableDisk/Actions/VirtualMedia.InsertMedia" % creds["idrac_ip"]
+            else:
+                logging.error("- FAIL, invalid value passed in for argument insert_virtual_media.")
+                return
+        if iDRAC_version == "new":
+            url = "https://%s/redfish/v1/Systems/System.Embedded.1/VirtualMedia/%s/Actions/VirtualMedia.InsertMedia" % (creds["idrac_ip"], insert_virtual_media)
         payload = {'Image': image_path, 'Inserted':True,'WriteProtected':True}
         if x_auth_token == "yes":
             headers = {'content-type': 'application/json', 'X-Auth-Token': creds["idrac_x_auth_token"]}
@@ -6170,21 +6230,22 @@ def insert_eject_virtual_media(script_examples="", get_attach_status="", insert_
             response = requests.post(url, data=json.dumps(payload), headers=headers, verify=creds["verify_cert"],auth=(creds["idrac_username"],creds["idrac_password"]))
         data = response.__dict__
         if response.status_code != 204:
-            logging.error("\n- FAIL, POST command InsertMedia action failed, detailed error message: %s" % response._content)
+            logging.error("\n- FAIL, POST command failed to insert virtual media, detailed error message: %s" % response._content)
             return
         else:
-            logging.info("\n- PASS, POST command passed to successfully insert(attached) %s media, status code %s returned" % (media_device, response.status_code))
+            logging.info("\n- PASS, POST command passed to successfully insert(attached) virtual media, status code %s returned" % response.status_code)
 
     elif eject_virtual_media:
-        if eject_virtual_media.lower() == "cd":
-            url = "https://%s/redfish/v1/Managers/iDRAC.Embedded.1/VirtualMedia/CD/Actions/VirtualMedia.EjectMedia" % creds["idrac_ip"]
-            media_device = "CD"
-        elif eject_virtual_media.lower() == "removeabledisk":
-            url = "https://%s/redfish/v1/Managers/iDRAC.Embedded.1/VirtualMedia/RemovableDisk/Actions/VirtualMedia.EjectMedia" % creds["idrac_ip"]
-            media_device = "Removable Disk"
-        else:
-            logging.error("- FAIL, invalid value passed in for argument eject_virtual_media.")
-            return
+        if iDRAC_version == "old":
+            if insert_virtual_media.lower() == "cd":
+                url = "https://%s/redfish/v1/Managers/iDRAC.Embedded.1/VirtualMedia/CD/Actions/VirtualMedia.EjectMedia" % creds["idrac_ip"]
+            elif insert_virtual_media.lower() == "removeabledisk":
+                url = "https://%s/redfish/v1/Managers/iDRAC.Embedded.1/VirtualMedia/RemovableDisk/Actions/VirtualMedia.EjectMedia" % creds["idrac_ip"]
+            else:
+                logging.error("- FAIL, invalid value passed in for argument insert_virtual_media.")
+                return
+        if iDRAC_version == "new":
+            url = "https://%s/redfish/v1/Systems/System.Embedded.1/VirtualMedia/%s/Actions/VirtualMedia.EjectMedia" % (creds["idrac_ip"], eject_virtual_media)
         payload = {}
         if x_auth_token == "yes":
             headers = {'content-type': 'application/json', 'X-Auth-Token': creds["idrac_x_auth_token"]}
@@ -6194,10 +6255,214 @@ def insert_eject_virtual_media(script_examples="", get_attach_status="", insert_
             response = requests.post(url, data=json.dumps(payload), headers=headers, verify=creds["verify_cert"],auth=(creds["idrac_username"],creds["idrac_password"]))
         data = response.__dict__
         if response.status_code != 204:
-            logging.error("\n- FAIL, POST command EjectMedia action failed, detailed error message: %s" % response._content)
+            logging.error("\n- FAIL, POST command failed to eject virtual media, detailed error message: %s" % response._content)
             return
         else:
-            logging.info("\n- PASS, POST command passed to successfully eject(detach) %s media, status code %s returned" % (media_device, response.status_code))
+            logging.info("\n- PASS, POST command passed to successfully eject(detach) virtual media, status code %s returned" % response.status_code)
+
+def change_disk_state_virtualdisk(script_examples="", disk="", state=""):
+    """Function to change the PD state of a disk part of a virtual disk, either set the disk to offline or bring back online. NOTE: Only RAID volumes which support parity are supported for this feature. Supported function arguments: disk (possible value: pass in disk FQDD) and state (possible values: offline and online)."""
+    global job_id
+    if script_examples:
+        print("""\n- IdracRedfishSupport.change_disk_state_virtualdisk(disk="Disk.Bay.0:Enclosure.Internal.0-1:RAID.SL.3-1",state="offline"), this example shows converting disk 0 to offline which is part of a RAID 5 volume.
+        \n- IdracRedfishSupport.change_disk_state_virtualdisk(disk="Disk.Bay.1:Enclosure.Internal.0-1:RAID.SL.3-1",state="online"), this example shows converting disk 1 to online which is part of a RAID 5 volume.""")
+        return
+    elif disk and state:
+        method = "ChangePDState"
+        url = 'https://%s/redfish/v1/Dell/Systems/System.Embedded.1/DellRaidService/Actions/DellRaidService.ChangePDState' % (creds["idrac_ip"])
+        payload = {"State":state.title(),"TargetFQDD":disk}
+        if x_auth_token == "yes":
+            headers = {'content-type': 'application/json', 'X-Auth-Token': creds["idrac_x_auth_token"]}
+            response = requests.post(url, data=json.dumps(payload), headers=headers, verify=creds["verify_cert"])
+        else:
+            headers = {'content-type': 'application/json'}
+            response = requests.post(url, data=json.dumps(payload), headers=headers, verify=creds["verify_cert"],auth=(creds["idrac_username"],creds["idrac_password"]))
+        data = response.json()
+        if response.status_code == 401:
+            logging.error("- ERROR, status code 401 detected, check to make sure your iDRAC script session has correct username/password credentials or if using X-auth token, confirm the session is still active.")
+            return
+        elif response.status_code == 200 or response.status_code == 202:
+            logging.info("\n- PASS: POST command passed for %s, status code %s returned" % (method, response.status_code))
+            try:
+                job_id = response.headers['Location'].split("/")[-1]
+            except:
+                logging.error("- FAIL, unable to locate job ID in JSON headers output")
+                return
+            logging.info("- Job ID %s successfully created" % job_id)
+            loop_job_status_final()
+        else:
+            logging.error("\n- FAIL, POST command failed for %s, status code %s returned" % (method, response.status_code))
+            data = response.json()
+            logging.error("\n- POST command failure results:\n %s" % data)
+            return
+    else:
+        logging.warning("- WARNING, missing arguments or incorrect argument values passed in. Check help text and script examples for more details")
+        return
+
+def blink_unblink_storage_device(script_examples="", blink="", unblink=""):
+    """Function to blink or unblink either hard drive or virtual disk. Possible function arguments: blink (pass in drive or virtual disk FQDD string) and unblink (pass in drive or virtual disk FQDD string)."""
+    global job_id
+    if script_examples:
+        print("""\n- IdracRedfishSupport.blink_unblink_storage_device(blink="Disk.Bay.3:Enclosure.Internal.0-1:RAID.SL.3-1"), this example shows blinking disk 3.
+        \n- IdracRedfishSupport.blink_unblink_storage_device(unblink="Disk.Virtual.0:RAID.SL.3-1"), this example shows unblink virtual disk 0.""")
+        return
+    elif blink:
+        url = 'https://%s/redfish/v1/Dell/Systems/System.Embedded.1/DellRaidService/Actions/DellRaidService.BlinkTarget' % (creds["idrac_ip"])
+        method = "BlinkTarget"
+        payload = {"TargetFQDD":blink}
+    elif unblink:
+        url = 'https://%s/redfish/v1/Dell/Systems/System.Embedded.1/DellRaidService/Actions/DellRaidService.UnBlinkTarget' % (creds["idrac_ip"])
+        method = "UnBlinkTarget"
+        payload = {"TargetFQDD":unblink}
+    else:
+        logging.warning("- WARNING, missing arguments or incorrect argument values passed in. Check help text and script examples for more details")
+        return
+    if x_auth_token == "yes":
+        headers = {'content-type': 'application/json', 'X-Auth-Token': creds["idrac_x_auth_token"]}
+        response = requests.post(url, data=json.dumps(payload), headers=headers, verify=creds["verify_cert"])
+    else:
+        headers = {'content-type': 'application/json'}
+        response = requests.post(url, data=json.dumps(payload), headers=headers, verify=creds["verify_cert"],auth=(creds["idrac_username"],creds["idrac_password"]))
+    data = response.json()
+    if response.status_code == 200 or response.status_code == 202:
+        logging.info("\n- PASS: POST command passed for %s, status code %s returned" % (method, response.status_code))
+    else:
+        logging.error("\n- FAIL, POST command failed for %s, status code %s returned" % (method, response.status_code))
+        data = response.json()
+        logging.error("\n- POST command failure results:\n %s" % data)
+        return
+
+def cancel_check_consistency_virtual_disk(script_examples="", virtual_disk_fqdd=""):
+    """Function to cancel check consistency operation running on a virtual disk. Supported function argument: virtual_disk_fqdd (pass in virtual disk FQDD)."""
+    global job_id
+    if script_examples:
+        print("""\n- IdracRedfishSupport.cancel_check_consistency_virtual_disk(virtual_disk_fqdd="Disk.Virtual.0:RAID.SL.3-1"), this example will cancel check consistency operation running on VD 0.""")
+        return
+    elif virtual_disk_fqdd:
+        method = "CancelCheckConsistency"
+        url = 'https://%s/redfish/v1/Dell/Systems/System.Embedded.1/DellRaidService/Actions/DellRaidService.CancelCheckConsistency' % (creds["idrac_ip"])
+        payload = {"TargetFQDD":virtual_disk_fqdd}
+        if x_auth_token == "yes":
+            headers = {'content-type': 'application/json', 'X-Auth-Token': creds["idrac_x_auth_token"]}
+            response = requests.post(url, data=json.dumps(payload), headers=headers, verify=creds["verify_cert"])
+        else:
+            headers = {'content-type': 'application/json'}
+            response = requests.post(url, data=json.dumps(payload), headers=headers, verify=creds["verify_cert"],auth=(creds["idrac_username"],creds["idrac_password"]))
+        data = response.json()
+        if response.status_code == 401:
+            logging.error("- ERROR, status code 401 detected, check to make sure your iDRAC script session has correct username/password credentials or if using X-auth token, confirm the session is still active.")
+            return
+        elif response.status_code == 200 or response.status_code == 202:
+            logging.info("\n- PASS: POST command passed for %s, status code %s returned" % (method, response.status_code))
+            try:
+                job_id = response.headers['Location'].split("/")[-1]
+            except:
+                logging.error("- FAIL, unable to locate job ID in JSON headers output")
+                return
+            logging.info("- Job ID %s successfully created" % job_id)
+            loop_job_status_final()
+        else:
+            logging.error("\n- FAIL, POST command failed for %s, status code %s returned" % (method, response.status_code))
+            data = response.json()
+            logging.error("\n- POST command failure results:\n %s" % data)
+            return
+    else:
+        logging.warning("- WARNING, missing arguments or incorrect argument values passed in. Check help text and script examples for more details")
+        return
+
+def expand_virtualdisk(script_examples="", pdisks="", expand="", size=""):
+    """Function to expand storage virtual disk, either add a disk or expand current size. Supported function arguments: expand (pass in virtual disk FQDD), pdisks (possible value: Pass in disk(s) you want to add to the virtual disk. If you pass in multiple disk FQDDs use a comma separator between FQDDs.) and size (possible value: Pass in new VD size you want to expand to in MB)."""
+    global job_id
+    if script_examples:
+        print("""\n- IdracRedfishSupport.expand_virtualdisk(expand="Disk.Virtual.0:RAID.SL.3-1", size="400000"), this example shows expanding VD 0 to 400GB in size. 
+        \n- IdracRedfishSupport.expand_virtualdisk(expand="Disk.Virtual.2:RAID.SL.3-1", pdisks="Disk.Bay.3:Enclosure.Internal.0-1:RAID.SL.3-1"), this example shows expanding VD 2 by adding disk 3 to the VD.""")
+        return
+    elif expand:
+        method = "OnlineCapacityExpansion"
+        url = 'https://%s/redfish/v1/Dell/Systems/System.Embedded.1/DellRaidService/Actions/DellRaidService.OnlineCapacityExpansion' % (creds["idrac_ip"])
+        if pdisks:
+            if "," in pdisks:
+                disk_list = pdisks.split(",")
+                payload = {"TargetFQDD": expand,  "PDArray": disk_list}
+            else:
+                payload = {"TargetFQDD": expand,  "PDArray": [pdisks]}   
+        elif size:
+            payload = {"TargetFQDD": expand,  "Size": int(size)}
+        if x_auth_token == "yes":
+            headers = {'content-type': 'application/json', 'X-Auth-Token': creds["idrac_x_auth_token"]}
+            response = requests.post(url, data=json.dumps(payload), headers=headers, verify=creds["verify_cert"])
+        else:
+            headers = {'content-type': 'application/json'}
+            response = requests.post(url, data=json.dumps(payload), headers=headers, verify=creds["verify_cert"],auth=(creds["idrac_username"],creds["idrac_password"]))
+        data = response.json()
+        if response.status_code == 401:
+            logging.error("- ERROR, status code 401 detected, check to make sure your iDRAC script session has correct username/password credentials or if using X-auth token, confirm the session is still active.")
+            return
+        elif response.status_code == 200 or response.status_code == 202:
+            logging.info("\n- PASS: POST command passed for %s, status code %s returned" % (method, response.status_code))
+            try:
+                job_id = response.headers['Location'].split("/")[-1]
+            except:
+                logging.error("- FAIL, unable to locate job ID in JSON headers output")
+                return
+            logging.info("- Job ID %s successfully created" % job_id)
+            loop_job_status_final()
+        else:
+            logging.error("\n- FAIL, POST command failed for %s, status code %s returned" % (method, response.status_code))
+            data = response.json()
+            logging.error("\n- POST command failure results:\n %s" % data)
+            return
+    else:
+        logging.warning("- WARNING, missing arguments or incorrect argument values passed in. Check help text and script examples for more details")
+        return
+
+def raidlevel_migration(script_examples="", pdisks="", migrate="", new_raid_level=""):
+    """Function to add additional hard drive(s) to the existing RAID Level to migrate to a new RAID level. Supported function arguments: migrate (pass in virtual disk FQDD), pdisks (possible value: Pass in disk(s) you want to add to the virtual disk. If you pass in multiple disk FQDDs use a comma separator between FQDDs.) and new_raid_level (possible values: RAID0, RAID1, RAID5, RAID6, RAID10, RAID50 and RAID60)."""
+    global job_id
+    if script_examples:
+        print("""\n- IdracRedfishSupport.raidlevel_migration(migrate="Disk.Virtual.0:RAID.SL.3-1", pdisks="Disk.Bay.3:Enclosure.Internal.0-1:RAID.SL.3-1", new_raid_level="RAID1"), this example shows adding disk 3 to VD 0 (RAID 0), migrate to create RAID 1 volume.""")
+        return
+    elif migrate:
+        method = "RAIDLevelMigration"
+        url = 'https://%s/redfish/v1/Dell/Systems/System.Embedded.1/DellRaidService/Actions/DellRaidService.RAIDLevelMigration' % (creds["idrac_ip"])
+        if pdisks:
+            if "," in pdisks:
+                disk_list = pdisks.split(",")
+                payload = {"TargetFQDD": migrate, "PDArray": disk_list, "NewRaidLevel":new_raid_level.upper()}
+            else:
+                payload = {"TargetFQDD": migrate, "PDArray": [pdisks], "NewRaidLevel":new_raid_level.upper()}   
+        if x_auth_token == "yes":
+            headers = {'content-type': 'application/json', 'X-Auth-Token': creds["idrac_x_auth_token"]}
+            response = requests.post(url, data=json.dumps(payload), headers=headers, verify=creds["verify_cert"])
+        else:
+            headers = {'content-type': 'application/json'}
+            response = requests.post(url, data=json.dumps(payload), headers=headers, verify=creds["verify_cert"],auth=(creds["idrac_username"],creds["idrac_password"]))
+        data = response.json()
+        if response.status_code == 401:
+            logging.error("- ERROR, status code 401 detected, check to make sure your iDRAC script session has correct username/password credentials or if using X-auth token, confirm the session is still active.")
+            return
+        elif response.status_code == 200 or response.status_code == 202:
+            logging.info("\n- PASS: POST command passed for %s, status code %s returned" % (method, response.status_code))
+            try:
+                job_id = response.headers['Location'].split("/")[-1]
+            except:
+                logging.error("- FAIL, unable to locate job ID in JSON headers output")
+                return
+            logging.info("- Job ID %s successfully created" % job_id)
+            loop_job_status_final()
+        else:
+            logging.error("\n- FAIL, POST command failed for %s, status code %s returned" % (method, response.status_code))
+            data = response.json()
+            logging.error("\n- POST command failure results:\n %s" % data)
+            return
+    else:
+        logging.warning("- WARNING, missing arguments or incorrect argument values passed in. Check help text and script examples for more details")
+        return
+
+
+
+        
+    
 
 
 

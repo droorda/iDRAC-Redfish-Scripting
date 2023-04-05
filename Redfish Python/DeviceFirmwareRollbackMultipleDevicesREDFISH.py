@@ -1,4 +1,3 @@
-#!/usr/bin/python
 #!/usr/bin/python3
 #
 # DeviceFirmwareRollbackMultipleDevicesREDFISH. Python script using Redfish API with OEM extension to rollback firmware for multiple devices iDRAC supports. 
@@ -273,7 +272,7 @@ def reboot_server():
             if data['PowerState'] == "Off":
                 logging.info("- PASS, GET command passed to verify graceful shutdown was successful and server is in OFF state")
                 break
-            elif current_time == "0:05:00":
+            elif current_time >= "0:05:00":
                 logging.info("- INFO, unable to perform graceful shutdown, server will now perform forced shutdown")
                 payload = {'ResetType': 'ForceOff'}
                 if args["x"]:
@@ -329,7 +328,6 @@ def reboot_server():
     else:
         logging.error("- FAIL, unable to get current server power state to perform either reboot or power on")
         sys.exit(0)
-
 
 if __name__ == "__main__":
     if args["script_examples"]:
@@ -387,9 +385,3 @@ if __name__ == "__main__":
             logging.info("- INFO, argument --reboot not detected. Update job is marked as scheduled and will be applied on next server reboot")
     else:
         logging.info("- INFO, iDRAC rollback detected, rollback will execute last after all other rollback jobs have completed due to iDRAC reboot after rollback completes")
-
-
-
-
-
-

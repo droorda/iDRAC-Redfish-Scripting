@@ -1,4 +1,3 @@
-#!/usr/bin/python
 #!/usr/bin/python3
 #
 # ExportFactoryConfigurationREDFISH. Python script using Redfish API with OEM extension to export server factory configuration to a network share
@@ -17,6 +16,7 @@
 #
 
 import argparse
+import getpass
 import json
 import logging
 import requests
@@ -163,9 +163,6 @@ def loop_job_status():
         else:
             logging.info("- INFO, job state not marked completed, current job status is running, polling again")
             
-
-    
-
 if __name__ == "__main__":
     if args["script_examples"]:
         script_examples()
@@ -191,9 +188,3 @@ if __name__ == "__main__":
         sys.exit(0)
     export_factory_configuration()
     loop_job_status()
-    
-    
-        
-            
-        
-        

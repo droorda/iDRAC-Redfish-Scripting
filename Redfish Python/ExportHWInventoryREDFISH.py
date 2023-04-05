@@ -1,4 +1,3 @@
-#!/usr/bin/python
 #!/usr/bin/python3
 #
 # ExportHWInventoryREDFISH. Python script using Redfish API with OEM extension to export server hardware(HW)
@@ -6,7 +5,7 @@
 #
 # _author_ = Texas Roemer <Texas_Roemer@Dell.com>
 # _author_ = Grant Curell <grant_curell@dell.com>
-# _version_ = 10.0
+# _version_ = 14.0
 #
 # Copyright (c) 2022, Dell, Inc.
 #
@@ -26,8 +25,8 @@ import re
 import requests
 import sys
 import time
+import urllib.parse
 import warnings
-import webbrowser
 
 from datetime import datetime
 from pprint import pprint
@@ -38,24 +37,24 @@ parser = argparse.ArgumentParser(description="Python script using Redfish API wi
 parser.add_argument('-ip',help='iDRAC IP address', required=False)
 parser.add_argument('-u', help='iDRAC username', required=False)
 parser.add_argument('-p', help='iDRAC password. If you do not pass in argument -p, script will prompt to enter user password which will not be echoed to the screen.', required=False)
-parser.add_argument('-x', help='Pass in X-Auth session token for executing Redfish calls. All Redfish calls will use X-Auth token instead of username/password', required=False)
+parser.add_argument('-x', help='Pass in X-Auth session token for executing Redfish calls. All Redfish calls will use X-Auth token instead of username/password.', required=False)
 parser.add_argument('--ssl', help='SSL cert verification for all Redfish calls, pass in value \"true\" or \"false\". By default, this argument is not required and script ignores validating SSL cert for all Redfish calls.', required=False)
 parser.add_argument('--script-examples', action="store_true", help='Prints script examples')
 parser.add_argument('--shareip', help='Pass in the IP address of the network share', required=False)
 parser.add_argument('--sharetype', help='Pass in the share type of the network share. Supported values: Local, NFS, CIFS, HTTP and HTTPS.', required=False)
 parser.add_argument('--sharename', help='Pass in the network share name', required=False)
 parser.add_argument('--username', help='Pass in the network share username if your share is setup for auth.', required=False)
-parser.add_argument('--password', help='Pass in the network share username password if your share is setup for auth', required=False)
-parser.add_argument('--workgroup', help='Pass in the workgroup of your CIFS network share. This argument is optional', required=False)
-parser.add_argument('--filename', help='Pass in unique filename for export hardware file which will get created on the network share. File details will be exported in XML format. Note: This argument is only required for exporting to network share.', required=False)
-parser.add_argument('--ignorecertwarning', help='Supported values are Enabled and Disabled. This argument is only required if using HTTPS for share type', required=False)
+parser.add_argument('--password', help='Pass in the network share username password if your share is setup for auth.', required=False)
+parser.add_argument('--workgroup', help='Pass in the workgroup of your CIFS network share. This argument is optional.', required=False)
+parser.add_argument('--filename', help='Pass in unique filename for export hardware inventory file, file extension must be .xml. This argument is required for export to network share but optional for local export. Default filename for local export is hwinv.xml if argument is not passed.', required=False, default='hwinv.xml')
+parser.add_argument('--ignorecertwarning', help='Supported values are Enabled and Disabled. This argument is only required if using HTTPS for share type.', required=False)
 
 args = vars(parser.parse_args())
 logging.basicConfig(format='%(message)s', stream=sys.stdout, level=logging.INFO)
 
 def script_examples():
     print("""\n- ExportHWInventoryREDFISH.py -ip 192.168.0.120 -u root -p calvin --shareip 192.168.0.130 --sharetype CIFS --sharename cifs_share_vm --username administrator --password pass --filename R650_export_hw_inv.xml, this example will export the server hardware inventory to CIFS share.
-    \n- ExportHWInventoryREDFISH.py -ip 192.168.0.120 -u root -p calvin --sharetype local, this example will export the HW configuration locally to an XML file which will prompt you to download using browser session.
+    \n- ExportHWInventoryREDFISH.py -ip 192.168.0.120 -u root -p calvin --sharetype local, this example will export the HW configuration locally using default filename hwinv.xml.
     \n- ExportHWInventoryREDFISH.py -ip 192.168.0.120 -x 442b945cf658fbcebb6ba1ffdcf6c6f8 --sharetype NFS --shareip 192.168.0.180 --sharename /nfs --filename R650_hw.xml, this example using X-auth token session will export server hardware inventory to NFS share.""")
     sys.exit(0)
 
@@ -83,7 +82,7 @@ def export_hw_inventory():
     if args["shareip"]:
         payload["IPAddress"] = args["shareip"]
     if args["sharetype"]:
-        if args["sharetype"].lower() == "local":
+        if args["sharetype"] == "local" or args["sharetype"] == "Local":
             payload["ShareType"] = args["sharetype"].title()
             logging.info("\n- INFO, collecting data for exporting server hardware inventory, this may take 15-30 seconds to complete")
         else:
@@ -116,27 +115,20 @@ def export_hw_inventory():
         sys.exit(0)
     if args["sharetype"].lower() == "local":
         if response.headers['Location'] == "/redfish/v1/Dell/hwinv.xml":
-            logging.info("- INFO, export server hardware inventory filename: \"%s\"" % response.headers['Location'])
-            python_version = sys.version_info
-            while True:
-                if python_version.major <= 2:
-                    request = raw_input("\n* Would you like to open browser session to download exported hardware inventory file? Type \"y\" to download or \"n\" to not download: ")
-                elif python_version.major >= 3:
-                    request = input("\n* Would you like to open browser session to download exported hardware inventory file? Type \"y\" to download or \"n\" to not download: ")
-                else:
-                    logging.error("- FAIL, unable to get current python version, manually run GET on URI \"%s\" to download exported hardware inventory file" % response.headers['Location'])
-                    sys.exit(0)
-                if str(request).lower() == "y":
-                    webbrowser.open('https://%s%s' % (idrac_ip, response.headers['Location']))
-                    logging.info("\n- INFO, check you default browser session for downloaded exported hardware inventory file")
-                    sys.exit(0)
-                elif str(request).lower() == "n":
-                    sys.exit(0)
-                else:
-                    logging.error("- FAIL, incorrect value passed in for request, try again")
-                    continue
+            if args["x"]:
+                response = requests.get('https://%s%s' % (idrac_ip, response.headers['Location']), verify=verify_cert, headers={'X-Auth-Token': args["x"]})   
+            else:
+                response = requests.get('https://%s%s' % (idrac_ip, response.headers['Location']), verify=verify_cert,auth=(idrac_username, idrac_password))
+            if args["filename"]:
+                export_filename = args["filename"]
+            else:
+                export_filename = "hwinv.xml"    
+            with open(export_filename, "wb") as output:
+                output.write(response.content)
+            logging.info("\n- INFO, check your local directory for hardware inventory XML file \"%s\"" % export_filename)
+            sys.exit(0)
         else:
-            logging.error("- ERROR, unable to locate exported hardware inventory URI in headers output")
+            logging.error("- ERROR, unable to locate exported hardware inventory URI in headers output. Manually run GET on URI %s to see if file can be exported." % response.headers['Location'])
             sys.exit(0)
     else:
         try:
@@ -158,7 +150,7 @@ def loop_job_status():
             response = requests.get('https://%s/redfish/v1/Managers/iDRAC.Embedded.1/Jobs/%s' % (idrac_ip, job_id), verify=verify_cert,auth=(idrac_username, idrac_password))
         current_time = (datetime.now() - start_time)
         if response.status_code != 200:
-            logging.error("\n- FAIL, GET command failed to check job status, return code %s" % response.status_code)
+            logging.error("\n- FAIL, Command failed to check job status, return code is %s" % response.status_code)
             logging.error("Extended Info Message: {0}".format(response.json()))
             sys.exit(0)
         data = response.json()
@@ -179,7 +171,6 @@ def loop_job_status():
         else:
             logging.info("- INFO, job state not marked completed, current job status is running, polling again")
             time.sleep(2)
-
 
 if __name__ == "__main__":
     if args["script_examples"]:

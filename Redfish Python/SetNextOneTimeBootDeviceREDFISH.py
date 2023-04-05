@@ -1,8 +1,6 @@
-#!/usr/bin/python
 #!/usr/bin/python3
 #
 # SetNextOneTimeBootDeviceREDFISH. Python script using Redfish API to set next reboot one time boot device.
-#
 #
 # _author_ = Texas Roemer <Texas_Roemer@Dell.com>
 # _version_ = 6.0
@@ -40,7 +38,7 @@ parser.add_argument('-x', help='Pass in X-Auth session token for executing Redfi
 parser.add_argument('--ssl', help='SSL cert verification for all Redfish calls, pass in value \"true\" or \"false\". By default, this argument is not required and script ignores validating SSL cert for all Redfish calls.', required=False)
 parser.add_argument('--script-examples', help='Get executing script examples', action="store_true", dest="script_examples", required=False)
 parser.add_argument('--get', help='Get current next boot onetime boot setting and possible values', action="store_true", required=False)
-parser.add_argument('--device', help='Pass in the string onetime boot device you want to set for next reboot. NOTE: This value is case sensitive so pass in exact value as stated in possible values for -c option', required=False, type=str)
+parser.add_argument('--device', help='Pass in the string onetime boot device you want to set for next reboot. This value is case sensitive, pass in exact value as stated in possible values for --get. Note: By passing in value Cd, this will onetime boot to virtual CD device if attached.', required=False, type=str)
 parser.add_argument('--set-uefi-target', help='Set UEFI target path. This will be used with --device option if you pass in UefiTarget value. ', dest="set_uefi_target", required=False)
 parser.add_argument('--get-uefi-target', help='Get UEFI target path values for each boot order entry', action="store_true", dest="get_uefi_target", required=False)
 parser.add_argument('--reboot', help='Pass in this argument if you want the server to reboot now once you set next boot onetime boot device.', action="store_true", required=False)
@@ -120,7 +118,6 @@ def set_next_boot_onetime_boot_device():
       logging.error(detail_message)
       sys.exit(0)
 
-
 def reboot_server():
     if args["x"]:
         response = requests.get('https://%s/redfish/v1/Systems/System.Embedded.1' % idrac_ip, verify=verify_cert, headers={'X-Auth-Token': args["x"]})   
@@ -156,7 +153,7 @@ def reboot_server():
             if data['PowerState'] == "Off":
                 logging.info("- PASS, GET command passed to verify graceful shutdown was successful and server is in OFF state")
                 break
-            elif current_time == "0:05:00":
+            elif current_time >= "0:05:00":
                 logging.info("- INFO, unable to perform graceful shutdown, server will now perform forced shutdown")
                 payload = {'ResetType': 'ForceOff'}
                 if args["x"]:
@@ -213,8 +210,6 @@ def reboot_server():
         logging.error("- FAIL, unable to get current server power state to perform either reboot or power on")
         sys.exit(0)
 
-        
-
 if __name__ == "__main__":
     if args["script_examples"]:
         script_examples()
@@ -252,6 +247,3 @@ if __name__ == "__main__":
             sys.exit(0)
     else:
         logging.error("\n- FAIL, invalid argument values or not all required parameters passed in. See help text or argument --script-examples for more details.")
-
-
-

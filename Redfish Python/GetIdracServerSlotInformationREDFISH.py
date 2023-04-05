@@ -1,4 +1,3 @@
-#!/usr/bin/python
 #!/usr/bin/python3
 #
 # GetIdracServerSlotInformationREDFISH. Python script using Redfish API with OEM extension to get iDRAC server slot information.
@@ -85,13 +84,10 @@ def get_server_slot_info():
         logging.error("- FAIL, no data detected for Members property. Manually execute GET on URI 'https://%s/redfish/v1/Dell/Systems/System.Embedded.1/DellSlotCollection' in browser to check. If no data detected, reboot server and run Collecting Inventory to refresh the configuration database for iDRAC, try GET again." % idrac_ip)
         sys.exit(0)
     for i in data['Members']:
-        pprint(i)
-        print("\n")
+        pprint(i), print("\n")
         for ii in i.items():
             server_slot_entry = ("%s: %s" % (ii[0],ii[1]))
-            #print(server_slot_entry)
             open_file.writelines("%s\n" % server_slot_entry)
-        #print("\n")
         open_file.writelines("\n")
     number_list = [i for i in range (1,100001) if i % 50 == 0]
     for seq in number_list:
@@ -111,13 +107,10 @@ def get_server_slot_info():
         if "Members" not in data or data["Members"] == [] or response.status_code == 400:
             break
         for i in data['Members']:
-            pprint(i)
-            print("\n")
+            pprint(i), print("\n")
             for ii in i.items():
                 server_slot_entry = ("%s: %s" % (ii[0],ii[1]))
-                #print(server_slot_entry)
                 open_file.writelines("%s\n" % server_slot_entry)
-            #print("\n")
             open_file.writelines("\n")
     logging.info("\n- INFO, iDRAC Server Slot Information also captured in \"%s_server_slot_info.txt\" file" % idrac_ip)
     open_file.close()
@@ -191,7 +184,6 @@ def get_server_slot_info_xml():
     open_file.writelines("\n</CIM>")
     open_file.close()
     
-
 if __name__ == "__main__":
     if args["script_examples"]:
         script_examples()
@@ -221,5 +213,3 @@ if __name__ == "__main__":
         get_server_slot_info_xml()
     else:
         logging.error("\n- FAIL, invalid argument values or not all required parameters passed in. See help text or argument --script-examples for more details.")
-
-

@@ -1,4 +1,3 @@
-#!/usr/bin/python
 #!/usr/bin/python3
 #
 # DeviceFirmwareSimpleUpdateTransferProtocolREDFISH. Python script using Redfish API to update a device firmware with DMTF standard SimpleUpdate with TransferProtocol. Only supported file image type is Windows Dell Update Packages(DUPs).
@@ -54,7 +53,7 @@ def script_examples():
     print("""\n- DeviceFirmwareSimpleUpdateTransferProtocolREDFISH.py -ip 192.168.0.120 -u root -p calvin --get-firmware, this example will return current firmware versions for all devices supported for updates.
     \n- \n- DeviceFirmwareSimpleUpdateTransferProtocolREDFISH.py -ip 192.168.0.120 -u root -p calvin --get-protocols, this example will get current supported protocol types to perform firmware update using transfer protocol method.
     \n- DeviceFirmwareSimpleUpdateTransferProtocolREDFISH.py -ip 192.168.0.120 -u root -p calvin --protocol HTTP --uri http://192.168.0.130/updates_http/CPLD_Firmware_WN64_1.0.2_A00.EXE --reboot, this example will reboot the server now and update CPLD firmware using HTTP share.
-    \n- DeviceFirmwareSimpleUpdateTransferProtocolREDFISH.py -ip 192.168.0.120 -u root -p calvin -protocol CIFS --uri cifs://administrator:password@192.168.0.130/updates_cifs/BIOS_WN64_2.4.11_A00.EXE, this example using CIFS share will create and schedule BIOS update job but not reboot the server now to execute. Job will execute on next server manual reboot.
+    \n- DeviceFirmwareSimpleUpdateTransferProtocolREDFISH.py -ip 192.168.0.120 -u root -p calvin --protocol CIFS --uri cifs://administrator:password@192.168.0.130/updates_cifs/BIOS_WN64_2.4.11_A00.EXE, this example using CIFS share will create and schedule BIOS update job but not reboot the server now to execute. Job will execute on next server manual reboot.
     \n- DeviceFirmwareSimpleUpdateTransferProtocolREDFISH.py -ip 192.168.0.120 -x 017c2b92678091e0fc9b2a4c5985299a --protocol NFS --uri 192.168.0.140:/nfs/Diags_c6420.exe, this example using X-auth token session will update diags using NFS share.""")
     sys.exit(0)
 
@@ -103,7 +102,6 @@ def get_FW_inventory():
         pprint(i)
         print("\n")  
 
-
 def get_supported_protocols():
     if args["x"]:
         response = requests.get('https://%s/redfish/v1/UpdateService' % idrac_ip, verify=verify_cert, headers={'X-Auth-Token': args["x"]})
@@ -144,7 +142,6 @@ def install_image_payload():
     logging.info("\n- PASS, update job ID %s successfully created, script will now loop polling the job status\n" % job_id)
     start_time = datetime.now()
     time.sleep(1)
-
 
 def check_job_status():
     retry_count = 1
@@ -282,7 +279,7 @@ def reboot_server():
             if data['PowerState'] == "Off":
                 logging.info("- PASS, GET command passed to verify graceful shutdown was successful and server is in OFF state")
                 break
-            elif current_time == "0:05:00":
+            elif current_time >= "0:05:00":
                 logging.info("- INFO, unable to perform graceful shutdown, server will now perform forced shutdown")
                 payload = {'ResetType': 'ForceOff'}
                 if args["x"]:
@@ -383,8 +380,6 @@ def check_idrac_connection():
                     continue
                 break
             
-
-
 if __name__ == "__main__":
     if args["script_examples"]:
         script_examples()
@@ -429,9 +424,3 @@ if __name__ == "__main__":
             sys.exit(0)
     else:
         logging.error("\n- FAIL, invalid argument values or not all required parameters passed in. See help text or argument --script-examples for more details.")
-
-
-
-
-
-

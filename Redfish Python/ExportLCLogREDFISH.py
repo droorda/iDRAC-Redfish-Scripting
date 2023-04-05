@@ -1,8 +1,7 @@
-#!/usr/bin/python
 #!/usr/bin/python3
 #
 # _author_ = Texas Roemer <Texas_Roemer@Dell.com>
-# _version_ = 5.0
+# _version_ = 9.0
 #
 # Copyright (c) 2019, Dell, Inc.
 #
@@ -23,6 +22,7 @@ import re
 import requests
 import sys
 import time
+import urllib.parse
 import warnings
 import webbrowser
 
@@ -31,32 +31,29 @@ from pprint import pprint
 
 warnings.filterwarnings("ignore")
 
-parser=argparse.ArgumentParser(description="Python script using Redfish API with OEM extension to export lifecycle (LC) logs to either local directory or network share")
+parser = argparse.ArgumentParser(description="Python script using Redfish API with OEM extension to export lifecycle (LC) logs to either local directory or network share")
 parser.add_argument('-ip',help='iDRAC IP address', required=False)
 parser.add_argument('-u', help='iDRAC username', required=False)
 parser.add_argument('-p', help='iDRAC password. If you do not pass in argument -p, script will prompt to enter user password which will not be echoed to the screen.', required=False)
 parser.add_argument('-x', help='Pass in X-Auth session token for executing Redfish calls. All Redfish calls will use X-Auth token instead of username/password', required=False)
 parser.add_argument('--ssl', help='SSL cert verification for all Redfish calls, pass in value \"true\" or \"false\". By default, this argument is not required and script ignores validating SSL cert for all Redfish calls.', required=False)
 parser.add_argument('--script-examples', action="store_true", help='Prints script examples')
-parser.add_argument('--shareip', help='Pass in the IP address of the network share', required=False)
+parser.add_argument('--shareip', help='Pass in the IP address of the network share.', required=False)
 parser.add_argument('--sharetype', help='Pass in the share type of the network share. Supported values: Local, NFS, CIFS, HTTP and HTTPS.', required=False)
 parser.add_argument('--sharename', help='Pass in the network share name', required=False)
 parser.add_argument('--username', help='Pass in the network share username if your share is setup for auth.', required=False)
-parser.add_argument('--password', help='Pass in the network share username password if your share is setup for auth', required=False)
-parser.add_argument('--workgroup', help='Pass in the workgroup of your CIFS network share. This argument is optional', required=False)
-parser.add_argument('--filename', help='Pass in unique filename for export LC log file which will get created on the network share. File details will be exported in XML format. Note: This argument is only required for exporting to network share.', required=False)
-parser.add_argument('--ignorecertwarning', help='Supported values are Enabled and Disabled. This argument is only required if using HTTPS for share type', required=False)
+parser.add_argument('--password', help='Pass in the network share username password if your share is setup for auth.', required=False)
+parser.add_argument('--workgroup', help='Pass in the workgroup of your CIFS network share. This argument is optional.', required=False)
+parser.add_argument('--filename', help='Pass in unique filename for export LC log file, file extension must be .xml. This argument is required for export to network share but optional for local export. Default filename for local export is lclog.xml if argument is not passed.', required=False, default='lclog.xml')
+parser.add_argument('--ignorecertwarning', help='Supported values are Enabled and Disabled. This argument is only required if using HTTPS for share type.', required=False)
 
-args=vars(parser.parse_args())
+args = vars(parser.parse_args())
 logging.basicConfig(format='%(message)s', stream=sys.stdout, level=logging.INFO)
 
 def script_examples():
     print("""\n- ExportLCLogREDFISH.py -ip 192.168.0.120 -u root -p calvin --shareip 192.168.0.130 --sharetype CIFS --sharename cifs_share_vm --username administrator --password pass --filename idrac_lc_logs.xml, this example will export iDRAC LC logs to a CIFS share.
-    \n- ExportLCLogREDFISH.py -ip 192.168.0.120 -u root -p calvin --sharetype local, this example will export the iDRAC Lifecycle Logs to local directory in XML file format.""")
+    \n- ExportLCLogREDFISH.py -ip 192.168.0.120 -u root -p calvin --sharetype local, this example will export the iDRAC Lifecycle Logs locally using default filename lclog.xml.""")
     sys.exit(0)
-
-    
-
 
 def check_supported_idrac_version():
     if args["x"]:
@@ -112,27 +109,20 @@ def export_lc_logs():
         sys.exit(0)
     if args["sharetype"].lower() == "local":
         if response.headers['Location'] == "/redfish/v1/Dell/lclog.xml":
-            logging.info("- INFO, export LC log filename location: \"%s\"" % response.headers['Location'])
-            python_version = sys.version_info
-            while True:
-                if python_version.major <= 2:
-                    request = raw_input("\n* Would you like to open browser session to download exported LC log file? Type \"y\" to download or \"n\" to not download: ")
-                elif python_version.major >= 3:
-                    request = input("\n* Would you like to open browser session to download exported LC log file? Type \"y\" to download or \"n\" to not download: ")
-                else:
-                    logging.error("- FAIL, unable to get current python version, manually run GET on URI \"%s\" to download exported LC log file" % response.headers['Location'])
-                    sys.exit(0)
-                if str(request).lower() == "y":
-                    webbrowser.open('https://%s%s' % (idrac_ip, response.headers['Location']))
-                    logging.info("\n- INFO, check you default browser session for downloaded exported LC log file")
-                    sys.exit(0)
-                elif str(request).lower() == "n":
-                    sys.exit(0)
-                else:
-                    logging.error("- FAIL, incorrect value passed in for request, try again")
-                    continue
+            if args["x"]:
+                response = requests.get('https://%s%s' % (idrac_ip, response.headers['Location']), verify=verify_cert, headers={'X-Auth-Token': args["x"]})   
+            else:
+                response = requests.get('https://%s%s' % (idrac_ip, response.headers['Location']), verify=verify_cert,auth=(idrac_username, idrac_password))
+            if args["filename"]:
+                export_filename = args["filename"]
+            else:
+                export_filename = "lclog.xml"    
+            with open(export_filename, "wb") as output:
+                output.write(response.content)
+            logging.info("\n- INFO, check your local directory for LC log XML file \"%s\"" % export_filename)
+            sys.exit(0)
         else:
-            logging.error("- ERROR, unable to locate exported LC log URI in headers output")
+            logging.error("- ERROR, unable to locate LC log URI in headers output. Manually run GET on URI %s to see if file can be exported." % response.headers['Location'])
             sys.exit(0)
     else:
         try:

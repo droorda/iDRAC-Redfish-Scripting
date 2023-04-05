@@ -1,4 +1,3 @@
-#!/usr/bin/python
 #!/usr/bin/python3
 #
 # DeleteFirmwarePackageREDFISH. Python script using Redfish API to delete a downloaded package which has not been applied yet.
@@ -6,7 +5,7 @@
 # to delete the downloaded payload.
 #
 # _author_ = Texas Roemer <Texas_Roemer@Dell.com>
-# _version_ = 3.0
+# _version_ = 4.0
 #
 # Copyright (c) 2017, Dell, Inc.
 #
@@ -118,8 +117,6 @@ def delete_payload():
         logging.error("\n- FAIL, command failed to delete AVAILABLE URI %s, error: \n%s" % (args["uri"], data))
         sys.exit(0)
     
-
-
 def delete_all_available_entries():
     if args["x"]:
         response = requests.get('https://%s/redfish/v1/UpdateService/FirmwareInventory' % idrac_ip, verify=verify_cert, headers={'X-Auth-Token': args["x"]})   
@@ -132,10 +129,10 @@ def delete_all_available_entries():
     available_entries = []
     for i in data['Members']:
         for ii in i.items():
-            if "Available" in ii[1]:
+            if "/available" in ii[1].lower():
                 available_entries.append(ii[1])
     if available_entries == []:
-        logigng.warning("\n- WARNING, no AVAILABLE entries for deleting payload")
+        logging.warning("\n- WARNING, no AVAILABLE entries for deleting payload")
         sys.exit(0)
     else:
         logging.info("\n- INFO, available URI entries for deleting payload:\n")
@@ -172,7 +169,7 @@ def delete_all_available_entries():
     data = response.json()
     for i in data['Members']:
         for ii in i.items():
-            if "Available" in ii[1]:
+            if "/available" in ii[1].lower():
                 available_entries.append(ii[1])
     if available_entries == []:
         logging.info("- PASS, all AVAILABLE firmware entries successfully deleted")
@@ -180,8 +177,6 @@ def delete_all_available_entries():
         logging.error("- FAIL, available firmware entries still detected. Entries are: %s" % available_entries)
         sys.exit(0)
     
-
-
 if __name__ == "__main__":
     if args["script_examples"]:
         script_examples()
@@ -215,6 +210,3 @@ if __name__ == "__main__":
         delete_all_available_entries()         
     else:
         logging.error("\n- FAIL, invalid argument values or not all required parameters passed in. See help text or argument --script-examples for more details.")
-    
-
-

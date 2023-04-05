@@ -1,10 +1,9 @@
-#!/usr/bin/python
 #!/usr/bin/python3
 #
 # ResetConfigStorageREDFISH. Python script using Redfish API with OEM extension to reset the storage controller
 #
 # _author_ = Texas Roemer <Texas_Roemer@Dell.com>
-# _version_ = 7.0
+# _version_ = 8.0
 #
 # Copyright (c) 2019, Dell, Inc.
 #
@@ -31,7 +30,7 @@ from pprint import pprint
 
 warnings.filterwarnings("ignore")
 
-parser=argparse.ArgumentParser(description="Python script using Redfish API with OEM extension to reset the storage controller. Note: This method is destructive and will clear all virtual disks on the controller.")
+parser = argparse.ArgumentParser(description="Python script using Redfish API with OEM extension to reset the storage controller. Note: This method is destructive and will clear all virtual disks on the controller.")
 parser.add_argument('-ip',help='iDRAC IP address', required=False)
 parser.add_argument('-u', help='iDRAC username', required=False)
 parser.add_argument('-p', help='iDRAC password', required=False)
@@ -42,7 +41,7 @@ parser.add_argument('--get-controllers', help='Get server storage controller FQD
 parser.add_argument('--get-virtualdisks', help='Get current server storage controller virtual disk(s) and virtual disk type, pass in storage controller FQDD, Example "\RAID.Integrated.1-1\"', dest="get_virtualdisks", required=False)
 parser.add_argument('--reset-controller', help='Reset the storage controller, pass in the controller FQDD, Example \"RAID.Slot.6-1\"', dest="reset_controller", required=False)
 
-args=vars(parser.parse_args())
+args = vars(parser.parse_args())
 logging.basicConfig(format='%(message)s', stream=sys.stdout, level=logging.INFO)
 
 def script_examples():
@@ -64,7 +63,6 @@ def check_supported_idrac_version():
         logging.warning("\n- WARNING, iDRAC version installed does not support this feature using Redfish API")
         sys.exit(0)
 
-
 def get_storage_controllers():
     if args["x"]:
         response = requests.get('https://%s/redfish/v1/Systems/System.Embedded.1/Storage' % idrac_ip, verify=verify_cert, headers={'X-Auth-Token': args["x"]})   
@@ -77,7 +75,6 @@ def get_storage_controllers():
         controller_list.append(i['@odata.id'].split("/")[-1])
         print(i['@odata.id'].split("/")[-1])
     
-
 def get_virtual_disks():
     test_valid_controller_FQDD_string(args["get_virtualdisks"])
     if args["x"]:
@@ -105,15 +102,9 @@ def get_virtual_disks():
 
 def reset_controller():
     global job_id
-    if args["x"]:
-        headers = {'content-type': 'application/json', 'X-Auth-Token': args["x"]}
-        response = requests.post(url, data=json.dumps(payload), headers=headers, verify=verify_cert)
-    else:
-        headers = {'content-type': 'application/json'}
-        response = requests.post(url, data=json.dumps(payload), headers=headers, verify=verify_cert,auth=(idrac_username,idrac_password))
-    url = 'https://%s/redfish/v1/Dell/Systems/System.Embedded.1/DellRaidService/Actions/DellRaidService.ResetConfig' % (idrac_ip)
     method = "ResetConfig"
     payload={"TargetFQDD": args["reset_controller"]}
+    url = 'https://%s/redfish/v1/Dell/Systems/System.Embedded.1/DellRaidService/Actions/DellRaidService.ResetConfig' % (idrac_ip)
     if args["x"]:
         headers = {'content-type': 'application/json', 'X-Auth-Token': args["x"]}
         response = requests.post(url, data=json.dumps(payload), headers=headers, verify=verify_cert)
@@ -146,11 +137,22 @@ def test_valid_controller_FQDD_string(x):
 
 def loop_job_status():
     start_time = datetime.now()
+    retry_count = 0
     while True:
-        if args["x"]:
-            response = requests.get('https://%s/redfish/v1/Managers/iDRAC.Embedded.1/Jobs/%s' % (idrac_ip, job_id), verify=verify_cert, headers={'X-Auth-Token': args["x"]})
-        else:
-            response = requests.get('https://%s/redfish/v1/Managers/iDRAC.Embedded.1/Jobs/%s' % (idrac_ip, job_id), verify=verify_cert,auth=(idrac_username, idrac_password))
+        if retry_count == 10:
+            logging.error("- FAIL, GET job status retry count of 10 has been reached, script will exit")
+            sys.exit(0)
+        try:
+            if args["x"]:
+                response = requests.get('https://%s/redfish/v1/Managers/iDRAC.Embedded.1/Jobs/%s' % (idrac_ip, job_id), verify=verify_cert, headers={'X-Auth-Token': args["x"]})
+            else:
+                response = requests.get('https://%s/redfish/v1/Managers/iDRAC.Embedded.1/Jobs/%s' % (idrac_ip, job_id), verify=verify_cert,auth=(idrac_username, idrac_password))
+        except requests.ConnectionError as error_message:
+            logging.error(error_message)
+            logging.error("\n- WARNING, GET request failed to check job status, retry again")
+            time.sleep(5)
+            retry_count += 1
+            continue
         current_time = (datetime.now()-start_time)
         if response.status_code != 200:
             logging.error("\n- FAIL, GET command failed to check job status, return code is %s" % statusCode)
@@ -170,18 +172,17 @@ def loop_job_status():
                     print("%s: %s" % (i[0],i[1]))
             break
         else:
-            logging.info("- INFO, job status not completed, current status: \"%s\"" % data['Message'])
+            logging.info("- INFO, job status not completed, current status: \"%s\"" % data['Message'].strip("."))
             time.sleep(3)
             
-
 if __name__ == "__main__":
     if args["script_examples"]:
         script_examples()
-    if args["ip"] and args["ssl"] or args["u"] or args["p"] or args["x"]:
-        idrac_ip=args["ip"]
-        idrac_username=args["u"]
+    if args["ip"] or args["ssl"] or args["u"] or args["p"] or args["x"]:
+        idrac_ip = args["ip"]
+        idrac_username = args["u"]
         if args["p"]:
-            idrac_password=args["p"]
+            idrac_password = args["p"]
         if not args["p"] and not args["x"] and args["u"]:
             idrac_password = getpass.getpass("\n- Argument -p not detected, pass in iDRAC user %s password: " % args["u"])
         if args["ssl"]:
@@ -206,10 +207,3 @@ if __name__ == "__main__":
         loop_job_status()
     else:
         logging.error("\n- FAIL, invalid argument values or not all required parameters passed in. See help text or argument --script-examples for more details.")
-        
-    
-    
-        
-            
-        
-        
