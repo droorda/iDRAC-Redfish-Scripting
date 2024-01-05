@@ -3,7 +3,7 @@
 # InstallFromRepositoryREDFISH. Python script using Redfish API with OEM extension to either get firmware version for all devices, get repository update list or install firmware from a repository on a network share.
 #
 # _author_ = Texas Roemer <Texas_Roemer@Dell.com>
-# _version_ = 17.0
+# _version_ = 18.0
 #
 # Copyright (c) 2019, Dell, Inc.
 #
@@ -309,7 +309,7 @@ def loop_job_status(x):
         if str(current_time)[0:7] >= "2:00:00":
             logging.error("\n- FAIL: Timeout of 2 hours has been reached, script stopped\n")
             sys.exit(0)
-        elif "completed successfully" in data['Message']:
+        elif "completed successfully" in data['Message'].lower() or "pending" in data['Message'].lower():
             logging.info("\n- INFO, job ID %s successfully marked completed" % x)
             logging.info("\n- Final detailed job results -\n")
             for i in data.items():

@@ -87,13 +87,11 @@ def get_components():
         elif i == "NonVolatileMemory":
             print("NonVolatileMemory: \"Erase NVDIMM devices\"")
         elif i == "OverwritePD":
-            print("OverwritePD: \"Erase non ISE HDD devices\"")
+            print("OverwritePD: \"Erase non ISE devices\"")
         elif i == "CryptographicErasePD":
-            print("CryptographicErasePD: \"Erase ISE/SED/NVMe devices\"")
+            print("CryptographicErasePD: \"Erase ISE/SED/NVMe/M.2 devices\"")
         elif i == "PERCNVCache":
             print("PERCNVCache: \"Erase pinned cache on the PERC controller\"")
-        elif i == "CryptographicErasePD":
-            print("CryptographicErasePD: \"Erase ISE/SED/NVMe devices\"")
         elif i == "vFlash":
             print("vFlash: \"Erase iDRAC vFlash card\"")
         elif i == "AllApps":

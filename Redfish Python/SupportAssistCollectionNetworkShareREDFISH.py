@@ -3,7 +3,7 @@
 # SupportAssistCollectionNetworkShareREDFISH. Python script using Redfish API with OEM extension to export Support Assist collection to a network share
 #
 # _author_ = Texas Roemer <Texas_Roemer@Dell.com>
-# _version_ = 11.0
+# _version_ = 12.0
 #
 # Copyright (c) 2020, Dell, Inc.
 #
@@ -39,7 +39,7 @@ parser.add_argument('--ssl', help='SSL cert verification for all Redfish calls, 
 parser.add_argument('--script-examples', help='Get executing script examples', action="store_true", dest="script_examples", required=False)
 parser.add_argument('--accept', help='Accept support assist end user license agreement (EULA)', action="store_true", required=False)
 parser.add_argument('--get', help='Get support assist end user license agreement (EULA)', action="store_true", required=False)
-parser.add_argument('--register', help='Register Support Assist for iDRAC. NOTE: You must also pass in city, company name, country, first name, first email, last name, phone number, street, state and zip arguments to register. NOTE: ISM must be installed and running on the operating system before you register SA.', action="store_true", required=False)
+parser.add_argument('--register', help='Register Support Assist for iDRAC. NOTE: You must also pass in city, company name, country, first name, first email, last name, phone number, street, state and zip arguments to register. NOTE: ISM must be installed and running on the operating system before you register SA. NOTE: Starting in iDRAC 7.00.00 registry support has been removed.', action="store_true", required=False)
 parser.add_argument('--export-network', help='Export Support Assist collection to network share. NOTE: Make sure you also use arguments ipaddress, sharetype, sharename and dataselectorarrayin for export to network share. If using CIFS, you need to also use username and password arguments.', dest="export_network", action="store_true", required=False)
 parser.add_argument('--export-last', help='Export Support Assist last collection stored on iDRAC to network share. NOTE: Make sure you also use arguments --shareip, --sharetype and --sharename.', dest="export_last", action="store_true", required=False)
 parser.add_argument('--city', help='Pass in city name to register Support Assist', required=False)
@@ -58,6 +58,7 @@ parser.add_argument('--state', help='Pass in state to register Support Assist', 
 parser.add_argument('--zip', help='Pass in zipcode to register Support Assist', required=False)
 parser.add_argument('--shareip', help='Pass in the IP address of the network share', required=False)
 parser.add_argument('--sharetype', help='Pass in the share type of the network share. Supported values are NFS, CIFS, HTTP, HTTPS, FTP, TFTP', required=False)
+parser.add_argument('--shareport', help='Pass in custom port configured for HTTP/HTTPS share. Example: Apache webserver is configured to use port 8080. Note: If your HTTP/HTTPS is using default port, this argument is not required. Note: You must have iDRAC9 7.00.00 installed to use this argument.', required=False)
 parser.add_argument('--sharename', help='Pass in the network share share name', required=False)
 parser.add_argument('--username', help='Pass in network share username if auth is configured (this is required for CIFS, optional for HTTP and HTTPS)', required=False)
 parser.add_argument('--password', help='Pass in network share username password if auth is configured (this is required for CIFS, optional for HTTP and HTTPS)', required=False)
@@ -71,7 +72,8 @@ def script_examples():
     \n- SupportAssistCollectionNetworkShareREDFISH.py -ip 192.168.0.120 -u root -p calvin --accept, this example will accept SA EULA.
     \n- SupportAssistCollectionNetworkShareREDFISH.py -ip 192.168.0.120 -u root -p calvin --register --city Austin --state Texas --zip 78665 --companyname Dell --country US --firstname test --lastname tester --phonenumber "512-123-4567" --first-email \"tester1@yahoo.com\" --second-email \"tester2@gmail.com\" --street \"1234 One Dell Way\", this example shows registering SupportAssist.
     \n- SupportAssistCollectionNetworkShareREDFISH.py -ip 192.168.0.120 -u root -p calvin --export-network --shareip 192.168.0.130 --sharetype HTTP --sharename http_share --data 3, this example wil export SA collection for storage TTYlogs only to HTTP share.
-    \n- SupportAssistCollectionNetworkShareREDFISH.py -ip 192.168.0.120 -u root -p calvin --export-last --shareip 192.168.0.130 --sharetype HTTP --sharename http_share, this example will export last cached SupportAssist collection to network share.""")
+    \n- SupportAssistCollectionNetworkShareREDFISH.py -ip 192.168.0.120 -u root -p calvin --export-last --shareip 192.168.0.130 --sharetype HTTP --sharename http_share, this example will export last cached SupportAssist collection to network share.
+    \n- SupportAssistCollectionNetworkShareREDFISH.py -ip 192.168.0.120 -u root -p calvin --export-network --sharetype HTTP --sharename http_share --shareip 192.168.0.130 --shareport 8080 --data 1, this example will export SA collection for hardware data only to HTTP share using non default share port.""")
     sys.exit(0)
 
 def check_supported_idrac_version():
@@ -209,6 +211,9 @@ def export_support_assist_colection_network_share():
         payload["UserName"] = args["username"]
     if args["password"]:
         payload["Password"] = args["password"]
+    if args["shareport"]:
+        payload["PortNumber"] = args["shareport"]
+    print(payload)
     if args["data"]:
         data_selector_values=[]
         if "," in args["data"]:
@@ -258,9 +263,9 @@ def loop_job_status():
     count_number = 0
     while True:
         if args["x"]:
-            response = requests.get('https://%s/redfish/v1/Managers/iDRAC.Embedded.1/Oem/Dell/Jobs/%s' % (idrac_ip, job_id), verify=verify_cert, headers={'X-Auth-Token': args["x"]})
+            response = requests.get('https://%s/redfish/v1/Managers/iDRAC.Embedded.1/Jobs/%s' % (idrac_ip, job_id), verify=verify_cert, headers={'X-Auth-Token': args["x"]})
         else:
-            response = requests.get('https://%s/redfish/v1/Managers/iDRAC.Embedded.1/Oem/Dell/Jobs/%s' % (idrac_ip, job_id), verify=verify_cert,auth=(idrac_username, idrac_password))
+            response = requests.get('https://%s/redfish/v1/Managers/iDRAC.Embedded.1/Jobs/%s' % (idrac_ip, job_id), verify=verify_cert,auth=(idrac_username, idrac_password))
         current_time = (datetime.now()-start_time)
         if response.status_code != 200:
             logging.error("\n- FAIL, Command failed to check job status, return code %s" % response.status_code)
